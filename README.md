@@ -53,20 +53,20 @@ Starting from `all_data`, a long-form df with columns:
 we first compute daily log-returns:
 ```r
 return_data <- all_data %>%
-  arrange(ticker, date) %>%
-  group_by(ticker) %>%
-  mutate(return = log(adjusted_close / lag(adjusted_close))) %>%
-  ungroup()
+  dplyr::arrange(ticker, date) %>%
+  dplyr::group_by(ticker) %>%
+  dplyr::mutate(return = log(adjusted_close / dplyr::lag(adjusted_close))) %>%
+  dplyr::ungroup()
 ```
 We isolate the market benchmark (the $IWB Russell 1000 ETF) returns and join back so each row has both an asset return and `market_return`. Then, for each `ticker` group, we apply a sliding‐window OLS:
 ```r
-roll_res <- roll::roll_lm(
+linreg <- roll::roll_lm(
   x     = market_return,
   y     = return,
   width = roll_window  # e.g. 252 days
 )
-alpha <-  roll_res$coefficients[, "(Intercept)"]
-beta  <-  roll_res$coefficients[, "x1"]
+alpha <-  linreg$coefficients[, "(Intercept)"]
+beta  <-  linreg$coefficients[, "x1"]
 ```
 
 This yields time-series of rolling alpha and beta estimates for each ETF.
