@@ -1,8 +1,6 @@
-library(ggplot2)
-
 # Script Params ----
 
-roll_window <- 36L
+roll_window <- 756L #3Y
 
 tickers <- c(
   "IWB", #R1000
@@ -66,4 +64,59 @@ simple_regression <- return_data %>%
     -adjusted_close,
     -return,
     -market_return
-  ) 
+  ) %>%
+  dplyr::filter(
+    !is.na(beta)
+  )
+
+
+# Dataviz ----
+
+library(ggplot2)
+library(ggrepel)
+library(scales)
+
+p <- simple_regression %>%
+  dplyr::filter(ticker == "USMV") %>%
+  ggplot(aes(x = date, y = beta)) +
+  geom_line(color = "steelblue", size = 1) +
+  geom_point(data = . %>% tail(1), color = "steelblue", size = 2) +
+  geom_text_repel(
+    data = . %>% tail(1),
+    aes(label = round(beta, 2)),
+    nudge_x    = 30,
+    direction  = "y",
+    vjust      = 2,
+    # hjust      = 1,
+    segment.color = NA
+  ) +
+  scale_x_date(
+    date_breaks = "1 year",
+    date_labels = "%Y"
+  ) +
+    scale_y_continuous(
+    limits = c(0.5, 1),
+    breaks = seq(0.5, 1, by = 0.1)
+  ) +
+  labs(
+    title    = "Rolling 3-Year Beta for $USMV",
+    subtitle = "vs. Russell 1000 Index ($IWB)",
+    x        = "Date",
+    y        = "Beta",
+    caption  = "Data: alphavantage • Chart: brrymtnc"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    panel.grid.major.x    = element_blank(),   # drop vertical grid
+    panel.grid.minor.x    = element_blank(),
+    panel.grid.major.y    = element_line(color = "grey80"),
+    panel.grid.minor.y    = element_blank(),
+    plot.title            = element_text(face = "bold", size = 14),
+    plot.subtitle         = element_text(size = 12),
+    axis.title            = element_text(size = 11),
+    plot.caption          = element_text(size = 8, color = "grey40")
+  )
+
+if (!dir.exists("images")) dir.create("images")
+ggsave("images/usmv_beta.svg", plot = p, width = 8, height = 5, dpi = 320)
+
