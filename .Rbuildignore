@@ -1,0 +1,4 @@
+^renv$
+^renv\.lock$
+^performanceanalysis\.Rproj$
+^\.Rproj\.user$
