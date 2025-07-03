@@ -37,11 +37,11 @@ scripts/           # Example/driver scripts
 
 ## Rolling Regression Details
 
-The idea of estimating an asset’s systematic risk through a linear regression dates back to the early work on the Capital Asset Pricing Model (CAPM) in the late 1950s and 1960s by Sharpe, Lintner, and Mossin. In that framework, an individual stock’s excess return is regressed on the market’s excess return to obtain  
+The idea of estimating an asset’s systematic risk through a linear regression dates back to the early work on the Capital Asset Pricing Model (CAPM) in the late 1950s and 1960s by Sharpe, Lintner, and Mossin. In that framework, an individual stock’s return is regressed on the market’s return to obtain  
 - **beta**: the slope, measuring sensitivity to market movements  
 - **alpha**: the intercept, representing risk-adjusted outperformance  
 
-We model returns rather than raw prices because prices are typically non-stationary and exhibit trends and heteroskedasticity. Returns (especially log-returns) are approximately homoscedastic and additive over time, satisfying the OLS assumptions more closely and making coefficients comparable across assets and periods.
+We model returns rather than raw prices because prices are non-stationary and exhibit trends and heteroskedasticity. Returns (especially log-returns) are approximately homoscedastic and additive over time, satisfying the OLS assumptions more closely and making the model coefficients comparable across assets and periods.
 
 ## Our Implementation
 
