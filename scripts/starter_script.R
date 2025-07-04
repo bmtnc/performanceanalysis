@@ -15,11 +15,13 @@ tickers <- c(
 )
 
 # Data Pulls ----
+
 all_data <- fetch_adjusted_prices(tickers)
 
 # Data Pre-processing ----
 # note - this is a long-form dataframe indexed by `date` and `ticker` and the values are `adjusted_close`
 # here we filter for sufficient price history
+
 all_data <- all_data %>% 
   dplyr::arrange(ticker, date) %>% 
   dplyr::group_by(ticker) %>% 
@@ -28,14 +30,8 @@ all_data <- all_data %>%
   dplyr::filter(n > roll_window) %>% 
   dplyr::select(-n)
 
-# daily log returns
-return_data <- all_data %>%
-  dplyr::arrange(ticker, date) %>%
-  dplyr::group_by(ticker) %>%
-  dplyr::mutate(return = log(adjusted_close / dplyr::lag(adjusted_close))) %>%
-  dplyr::ungroup()
+return_data <- calculate_log_returns(all_data)
 
-# isolate market returns and rejoin as 'market_return'
 market_returns <- return_data %>%
   dplyr::filter(ticker == "IWB") %>%
   dplyr::select(date, market_return = return)
@@ -49,7 +45,6 @@ simple_regression <- return_data %>%
   dplyr::arrange(ticker, date) %>%
   dplyr::group_by(ticker) %>%
   dplyr::mutate(
-    # Calculate rolling regression per group, not as a list-column
     roll_res = list(roll::roll_lm(
       x = market_return,
       y = return,
@@ -68,7 +63,6 @@ simple_regression <- return_data %>%
   dplyr::filter(
     !is.na(beta)
   )
-
 
 # Dataviz ----
 
@@ -101,7 +95,7 @@ p <- simple_regression %>%
   labs(
     title    = "Rolling 3-Year Beta for $USMV",
     subtitle = "vs. Russell 1000 Index ($IWB)",
-    x        = "Date",
+    x        = "",
     y        = "Beta",
     caption  = "Data: alphavantage • Chart: brrymtnc"
   ) +
@@ -119,4 +113,3 @@ p <- simple_regression %>%
 
 if (!dir.exists("images")) dir.create("images")
 ggsave("images/usmv_beta.svg", plot = p, width = 8, height = 5, dpi = 320)
-
