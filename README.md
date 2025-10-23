@@ -1,13 +1,13 @@
 # Performance Analysis of ETF Returns
 
-This R project fetches adjusted prices for a set of ETFs, computes daily log-returns, and applies a rolling linear regression against a market benchmark (IWB) to estimate alpha and beta over time.
+This R project fetches adjusted prices for a set of ETFs, computes daily log-returns, and applies a rolling linear regression against a market benchmark (IWV) to estimate alpha and beta over time.
 
 ## Features
 
 - Fetches adjusted closing prices via `fetch_adjusted_prices()`
 - Cleans and filters tickers for sufficient history
 - Calculates daily log-returns
-- Isolates market returns (IWB) and merges with each ticker
+- Isolates market returns (IWV) and merges with each ticker
 - Performs rolling linear regressions (window default: 756 trading days) to derive:
   - **alpha**: rolling intercept
   - **beta**: rolling slope against market return
@@ -58,7 +58,7 @@ return_data <- all_data %>%
   dplyr::mutate(return = log(adjusted_close / dplyr::lag(adjusted_close))) %>%
   dplyr::ungroup()
 ```
-We isolate the market benchmark (the $IWB Russell 1000 ETF) returns and join back so each row has both an asset return and `market_return`. Then, for each `ticker` group, we apply a sliding‐window OLS:
+We isolate the market benchmark (the $IWV Russell 3000 ETF) returns and join back so each row has both an asset return and `market_return`. Then, for each `ticker` group, we apply a sliding‐window OLS:
 ```r
 linreg <- roll::roll_lm(
   x     = market_return,
@@ -123,3 +123,37 @@ The stacked area chart above shows how ARKK's factor exposures have evolved over
 - **Small Quality** (IJR)
 
 Each colored band represents the rolling 3-year weight that would be allocated to that factor to best approximate ARKK's return profile during that period.
+
+## Benchmark Comparison: ARKK vs IWV Factor Loading Differences
+
+To understand how ARKK's factor exposures differ from the broad market, we perform **parallel constrained regressions** on both ARKK and IWV (the Russell 3000 benchmark) against the same 8-factor model. This reveals ARKK's active tilts relative to a passive market-cap weighted portfolio.
+
+### Methodology
+
+1. **Dual Regression Setup**: Run identical rolling 3-year constrained regressions for both ARKK and IWV
+   - Target: ARKK returns or IWV returns
+   - Factors: IWD, IWF, IWN, IWO, MTUM, USMV, QUAL, IJR
+   - Constraints: Non-negative weights, sum to 1, plus intercept
+
+2. **Difference Calculation**: For each date and factor, compute:
+   ```
+   Δβᵢ = β_ARKK,i - β_IWV,i
+   ```
+   Positive differences indicate ARKK overweights that factor relative to the market; negative values indicate underweights.
+
+3. **Materiality Filter**: For visualization clarity, we only display factors where `max(|Δβᵢ|) ≥ 5%` across the time series. **Note**: All 8 factors are used in both regressions regardless of their materiality for plotting.
+
+4. **Ordering**: Factors are arranged from highest to lowest based on their long-term average difference.
+
+### Interpretation
+
+The bar charts show ARKK's active factor bets over time:
+- Bars above zero → ARKK overweight relative to IWV
+- Bars below zero → ARKK underweight relative to IWV
+- Extreme values (near ±100%) indicate concentrated single-factor allocations
+
+This analysis quantifies how ARKK's style has deviated from the broad market benchmark, particularly during volatile periods like the 2020 COVID crash.
+
+## ARKK vs IWV: Factor Loading Differences Over Time
+
+![ARKK vs IWV Factor Loading Differences](images/arkk_iwv_factor_differences.svg)
