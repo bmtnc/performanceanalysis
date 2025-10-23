@@ -226,28 +226,28 @@ p1 <- viz_cumulative %>%
     data = cumulative_attribution,
     aes(x = date, y = cumulative_excess, fill = NULL),
     color = "black",
-    linewidth = 0.5
+    linewidth = 0.7
   ) +
   geom_point(
     data = final_point,
     aes(x = date, y = cumulative_excess, fill = NULL),
     color = "black",
-    size = 2.5
+    size = 2
   ) +
   annotate(
     "text",
-    x = final_point$date + 35,
+    x = final_point$date + 30,
     y = final_point$cumulative_excess,
     label = scales::percent(final_point$cumulative_excess, accuracy = 0.1),
     color = "black",
-    size = 2.5,
+    size = 3,
     hjust = 0
   ) +
   geom_hline(yintercept = 0, color = "grey30", linewidth = 0.3) +
   scale_x_date(
     date_breaks = "1 year",
     date_labels = "%Y",
-    expand = c(0.1, 0.2)
+    expand = c(0.05, 0.3)
   ) +
   scale_y_continuous(
     labels = scales::percent_format(),
