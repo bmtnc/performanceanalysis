@@ -14,7 +14,10 @@ testthat::test_that("returns correct structure with single predictor", {
   x <- as.matrix(test_df[, "x1"])
   y <- test_df$y
   
-  actual <- roll_constrained_lm(x = x, y = y, width = 3L)
+  testthat::expect_warning(
+    actual <- roll_constrained_lm(x = x, y = y, width = 3L, intercept = TRUE),
+    "^First 2 observations have NA coefficients due to insufficient window size \\(width = 3\\)\\.$"
+  )
   
   testthat::expect_s3_class(actual, "roll_constrained_lm")
   testthat::expect_named(actual, c("coefficients", "width", "call"))
@@ -27,7 +30,10 @@ testthat::test_that("returns correct structure with multiple predictors", {
   x <- as.matrix(test_df[, c("x1", "x2")])
   y <- test_df$y
   
-  actual <- roll_constrained_lm(x = x, y = y, width = 3L)
+  testthat::expect_warning(
+    actual <- roll_constrained_lm(x = x, y = y, width = 3L, intercept = TRUE),
+    "^First 2 observations have NA coefficients due to insufficient window size \\(width = 3\\)\\.$"
+  )
   
   testthat::expect_s3_class(actual, "roll_constrained_lm")
   testthat::expect_equal(ncol(actual$coefficients), 3L)
@@ -38,7 +44,10 @@ testthat::test_that("produces correct number of rolling windows", {
   x <- as.matrix(test_df[, "x1"])
   y <- test_df$y
   
-  actual <- roll_constrained_lm(x = x, y = y, width = 3L)
+  testthat::expect_warning(
+    actual <- roll_constrained_lm(x = x, y = y, width = 3L),
+    "^First 2 observations have NA coefficients due to insufficient window size \\(width = 3\\)\\.$"
+  )
   
   # Should return same number of rows as input data (like roll::roll_lm)
   testthat::expect_equal(nrow(actual$coefficients), length(y))
@@ -48,7 +57,10 @@ testthat::test_that("passes through sum_to_one constraint", {
   x <- as.matrix(test_df[, c("x1", "x2")])
   y <- test_df$y
   
-  actual <- roll_constrained_lm(x = x, y = y, width = 3L, sum_to_one = TRUE)
+  testthat::expect_warning(
+    actual <- roll_constrained_lm(x = x, y = y, width = 3L, sum_to_one = TRUE),
+    "^First 2 observations have NA coefficients due to insufficient window size \\(width = 3\\)\\.$"
+  )
   
   predictor_coefs <- actual$coefficients[, c("x1", "x2")]
   # Filter out incomplete windows (first width-1 rows are NA)
@@ -62,7 +74,10 @@ testthat::test_that("passes through non_negative constraint", {
   x <- as.matrix(test_df[, c("x1", "x2")])
   y <- test_df$y
   
-  actual <- roll_constrained_lm(x = x, y = y, width = 3L, non_negative = TRUE)
+  testthat::expect_warning(
+    actual <- roll_constrained_lm(x = x, y = y, width = 3L, non_negative = TRUE),
+    "^First 2 observations have NA coefficients due to insufficient window size \\(width = 3\\)\\.$"
+  )
   
   predictor_coefs <- actual$coefficients[, c("x1", "x2")]
   # Filter out incomplete windows
@@ -75,7 +90,10 @@ testthat::test_that("passes through both constraints", {
   x <- as.matrix(test_df[, c("x1", "x2")])
   y <- test_df$y
   
-  actual <- roll_constrained_lm(x = x, y = y, width = 3L, non_negative = TRUE, sum_to_one = TRUE)
+  testthat::expect_warning(
+    actual <- roll_constrained_lm(x = x, y = y, width = 3L, non_negative = TRUE, sum_to_one = TRUE),
+    "^First 2 observations have NA coefficients due to insufficient window size \\(width = 3\\)\\.$"
+  )
   
   predictor_coefs <- actual$coefficients[, c("x1", "x2")]
   # Filter out incomplete windows
@@ -91,19 +109,20 @@ testthat::test_that("handles insufficient data correctly", {
   x <- as.matrix(test_df[1:2, "x1"])
   y <- test_df$y[1:2]
   
-  actual <- roll_constrained_lm(x = x, y = y, width = 5L)
-  
-  # Should return same number of rows as input (like roll::roll_lm)
-  testthat::expect_equal(nrow(actual$coefficients), 2L)
-  # All values should be NA since no windows have sufficient data
-  testthat::expect_true(all(is.na(actual$coefficients)))
+  testthat::expect_error(
+    roll_constrained_lm(x = x, y = y, width = 5L, intercept = TRUE),
+    "Insufficient observations: need at least 5 but got 2\\."
+  )
 })
 
 testthat::test_that("produces NA values for incomplete windows", {
   x <- as.matrix(test_df[, "x1"])
   y <- test_df$y
   
-  actual <- roll_constrained_lm(x = x, y = y, width = 4L)
+  testthat::expect_warning(
+    actual <- roll_constrained_lm(x = x, y = y, width = 4L, intercept = TRUE),
+    "^First 3 observations have NA coefficients due to insufficient window size \\(width = 4\\)\\.$"
+  )
   
   testthat::expect_true(all(is.na(actual$coefficients[1, ])))
 })
@@ -112,7 +131,10 @@ testthat::test_that("matches roll::roll_lm when constraints are disabled", {
   x <- as.matrix(test_df[, "x1"])
   y <- test_df$y
   
-  actual <- roll_constrained_lm(x = x, y = y, width = 3L, non_negative = FALSE, sum_to_one = FALSE)
+  testthat::expect_warning(
+    actual <- roll_constrained_lm(x = x, y = y, width = 3L, non_negative = FALSE, sum_to_one = FALSE, intercept = TRUE),
+    "^First 2 observations have NA coefficients due to insufficient window size \\(width = 3\\)\\.$"
+  )
   expected <- roll::roll_lm(x = x, y = y, width = 3L)
   
   testthat::expect_equal(actual$coefficients, expected$coefficients, tolerance = 1e-8)
@@ -122,7 +144,10 @@ testthat::test_that("handles data.frame input for x", {
   x <- test_df[, c("x1", "x2")]
   y <- test_df$y
   
-  actual <- roll_constrained_lm(x = x, y = y, width = 3L)
+  testthat::expect_warning(
+    actual <- roll_constrained_lm(x = x, y = y, width = 3L, intercept = TRUE),
+    "^First 2 observations have NA coefficients due to insufficient window size \\(width = 3\\)\\.$"
+  )
   
   testthat::expect_s3_class(actual, "roll_constrained_lm")
   testthat::expect_equal(colnames(actual$coefficients), c("(Intercept)", "x1", "x2"))
@@ -163,7 +188,10 @@ testthat::test_that("preserves column names from x", {
   colnames(x) <- c("factor1", "factor2")
   y <- test_df$y
   
-  actual <- roll_constrained_lm(x = x, y = y, width = 3L)
+  testthat::expect_warning(
+    actual <- roll_constrained_lm(x = x, y = y, width = 3L, intercept = TRUE),
+    "^First 2 observations have NA coefficients due to insufficient window size \\(width = 3\\)\\.$"
+  )
   
   testthat::expect_equal(colnames(actual$coefficients), c("(Intercept)", "factor1", "factor2"))
 })

@@ -14,7 +14,7 @@ roll_constrained_lm(x, y, width, ...)
 \item{width}{Integer; window width.}
 
 \item{...}{Arguments forwarded to \code{constrained_linear_regression()}
-(e.g. \code{non_negative}, \code{sum_to_one}).}
+(e.g. \code{non_negative}, \code{sum_to_one}, \code{intercept}).}
 }
 \value{
 A list with a \code{coefficients} matrix identical to \code{roll::roll_lm()}.

@@ -56,7 +56,8 @@ factor_decomposition <- regression_data %>%
             y = arkk_return,
             width = roll_window,
             non_negative = TRUE,
-            sum_to_one = TRUE
+            sum_to_one = TRUE,
+            intercept = TRUE
         )),
         alpha = roll_res[[1]]$coefficients[, "(Intercept)"],
         large_value = roll_res[[1]]$coefficients[, "IWD"],

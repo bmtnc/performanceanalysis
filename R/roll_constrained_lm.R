@@ -7,7 +7,7 @@
 #' @param y Numeric response vector (length n).
 #' @param width Integer; window width.
 #' @param ...  Arguments forwarded to `constrained_linear_regression()`
-#'             (e.g. `non_negative`, `sum_to_one`).
+#'             (e.g. `non_negative`, `sum_to_one`, `intercept`).
 #'
 #' @return A list with a `coefficients` matrix identical to `roll::roll_lm()`.
 #' @export
@@ -29,7 +29,19 @@ roll_constrained_lm <- function(x, y, width, ...) {
         stop("Length of `y` must match number of rows in `x`.")
     }
     
-    # Create a data frame to slide over (since we need to keep x and y together)
+    n_obs <- length(y)
+    
+    # Check if we have enough observations
+    if (n_obs < width) {
+        stop(paste0("Insufficient observations: need at least ", width, " but got ", n_obs, "."))
+    }
+    
+    # Extract intercept parameter to determine number of coefficients
+    dots <- list(...)
+    intercept <- if (is.null(dots$intercept)) FALSE else dots$intercept  # default is FALSE
+    n_coefs <- ncol(x) + as.integer(intercept)
+    
+    # Create a data frame to slide over
     data_df <- data.frame(y = y, x)
     
     # Use slide to create rolling windows
@@ -37,7 +49,7 @@ roll_constrained_lm <- function(x, y, width, ...) {
         data_df,
         function(window_data) {
             if (nrow(window_data) < width) {
-                return(rep(NA_real_, ncol(x) + 1L))
+                return(rep(NA_real_, n_coefs))
             }
             
             # Extract the last `width` rows if window is larger than needed
@@ -48,7 +60,6 @@ roll_constrained_lm <- function(x, y, width, ...) {
             fit <- constrained_linear_regression(
                 x = as.matrix(window_data[, -1, drop = FALSE]),  # Remove y column
                 y = window_data$y,
-                intercept = TRUE,
                 ...
             )
             
@@ -58,9 +69,26 @@ roll_constrained_lm <- function(x, y, width, ...) {
         .complete = FALSE
     )
     
-    # Convert to matrix format
+    # Convert to matrix format - ensure it's always a matrix
     coef_matrix <- do.call(rbind, results)
-    colnames(coef_matrix) <- c("(Intercept)", colnames(x))
+    
+    # Force to matrix if it's not already (handles edge case)
+    if (!is.matrix(coef_matrix)) {
+        coef_matrix <- matrix(coef_matrix, nrow = length(results), ncol = n_coefs)
+    }
+    
+    # Set column names based on whether intercept is included
+    if (intercept) {
+        colnames(coef_matrix) <- c("(Intercept)", colnames(x))
+    } else {
+        colnames(coef_matrix) <- colnames(x)
+    }
+    
+    # Count how many incomplete windows we have and warn
+    n_incomplete <- sum(is.na(coef_matrix[, 1]))
+    if (n_incomplete > 0) {
+        warning(paste0("First ", n_incomplete, " observations have NA coefficients due to insufficient window size (width = ", width, ")."))
+    }
     
     structure(
         list(coefficients = coef_matrix,
