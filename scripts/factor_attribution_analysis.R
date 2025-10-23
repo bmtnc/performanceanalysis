@@ -216,6 +216,9 @@ viz_cumulative <- cumulative_attribution %>%
     )
   )
 
+final_point <- cumulative_attribution %>%
+  dplyr::slice_tail(n = 1)
+
 p1 <- viz_cumulative %>%
   ggplot(aes(x = date, y = value, fill = component)) +
   geom_area(alpha = 0.7, position = "stack") +
@@ -225,11 +228,26 @@ p1 <- viz_cumulative %>%
     color = "black",
     linewidth = 0.8
   ) +
+  geom_point(
+    data = final_point,
+    aes(x = date, y = cumulative_excess, fill = NULL),
+    color = "black",
+    size = 2.5
+  ) +
+  annotate(
+    "text",
+    x = final_point$date + 150,
+    y = final_point$cumulative_excess,
+    label = scales::percent(final_point$cumulative_excess, accuracy = 0.1),
+    color = "black",
+    size = 3.5,
+    hjust = 0
+  ) +
   geom_hline(yintercept = 0, color = "grey30", linewidth = 0.3) +
   scale_x_date(
     date_breaks = "1 year",
     date_labels = "%Y",
-    expand = c(0.01, 0.01)
+    expand = c(0.01, 0.05)
   ) +
   scale_y_continuous(
     labels = scales::percent_format(),
@@ -245,12 +263,13 @@ p1 <- viz_cumulative %>%
     title = "ARKK vs IWV: Cumulative Value-Add Attribution",
     subtitle = "Decomposing excess returns into factor tilts vs stock selection (rolling 3-year)",
     x = "",
-    y = "Cumulative Return",
+    y = "Cumulative Value-Add",
     fill = "Component",
     caption = "Black line = Total excess return • Data: alphavantage • Chart: brrymtnc"
   ) +
   theme_minimal(base_size = 11) +
   theme(
+    panel.grid.major.x = element_blank(),
     panel.grid.minor = element_blank(),
     plot.title = element_text(face = "bold", size = 14),
     plot.subtitle = element_text(size = 11, margin = margin(b = 10)),
