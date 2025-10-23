@@ -157,3 +157,44 @@ This analysis quantifies how ARKK's style has deviated from the broad market ben
 ## ARKK vs IWV: Factor Loading Differences Over Time
 
 ![ARKK vs IWV Factor Loading Differences](images/arkk_iwv_factor_differences.svg)
+
+## Cumulative Factor Attribution Analysis
+
+Building on the factor decomposition framework, we can treat the rolling factor weights as hypothetical portfolio allocations and perform **performance attribution** to decompose ARKK's total excess return (relative to IWV) into two sources:
+
+1. **Factor Contribution**: Return impact from factor tilts (over/underweighting factors relative to the benchmark)
+2. **Selection Effect**: Residual return from stock selection and interaction effects not explained by factor exposures
+
+### Methodology
+
+**Out-of-Sample Attribution**: Uses factor weights estimated at time *t* to explain returns at time *t+1*. This prevents look-ahead bias and mimics how portfolios would be constructed in practice.
+
+**Daily Decomposition**:
+```
+excess_return_t = (actual_ARKK_t - actual_IWV_t)
+factor_contribution_t = (expected_ARKK_t - expected_IWV_t)  
+selection_effect_t = (actual_ARKK_t - expected_ARKK_t) - (actual_IWV_t - expected_IWV_t)
+```
+
+where expected returns = Σ(β_i × r_factor_i) using weights from *t-1*.
+
+**Carino Linking**: Converts daily attribution into cumulative metrics using logarithmic weighting to maintain the additive identity:
+```
+cumulative_factor + cumulative_selection = cumulative_excess
+```
+
+Standard multiplicative compounding would violate this identity. Carino's method (industry standard for GIPS-compliant attribution) allocates the total compounded excess return proportionally based on log-weighted daily contributions.
+
+### Interpretation
+
+- **Cumulative Factor**: Value-add from ARKK's active factor positioning vs IWV
+- **Cumulative Selection**: Value-add from ARKK's stock-specific choices and residual alpha
+- **Sum**: Total cumulative excess return (ARKK vs IWV)
+
+Negative values indicate underperformance. The decomposition reveals whether poor performance stems from factor allocation decisions or security selection.
+
+## ARKK vs IWV: Cumulative Value-Add Attribution
+
+![ARKK vs IWV Cumulative Attribution](images/arkk_iwv_cumulative_attribution.svg)
+
+The stacked area chart shows how ARKK's -35.5% cumulative underperformance (vs IWV) breaks down into factor tilts (-31.0%) and selection effects (-4.5%), with the black line tracking total excess return over time.
