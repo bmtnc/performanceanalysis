@@ -236,7 +236,7 @@ p1 <- viz_cumulative %>%
   ) +
   annotate(
     "text",
-    x = final_point$date + 150,
+    x = final_point$date + 60,
     y = final_point$cumulative_excess,
     label = scales::percent(final_point$cumulative_excess, accuracy = 0.1),
     color = "black",
@@ -247,7 +247,7 @@ p1 <- viz_cumulative %>%
   scale_x_date(
     date_breaks = "1 year",
     date_labels = "%Y",
-    expand = c(0.01, 0.05)
+    expand = c(0.01, 0.08)
   ) +
   scale_y_continuous(
     labels = scales::percent_format(),
