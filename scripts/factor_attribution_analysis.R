@@ -226,13 +226,15 @@ p1 <- viz_cumulative %>%
     data = cumulative_attribution,
     aes(x = date, y = cumulative_excess, fill = NULL),
     color = "black",
-    linewidth = 0.7
+    linewidth = 0.7,
+    show.legend = FALSE
   ) +
   geom_point(
     data = final_point,
     aes(x = date, y = cumulative_excess, fill = NULL),
     color = "black",
-    size = 2
+    size = 2,
+    show.legend = FALSE
   ) +
   annotate(
     "text",
@@ -260,11 +262,11 @@ p1 <- viz_cumulative %>%
     )
   ) +
   labs(
-    title = "ARKK vs IWV: Cumulative Value-Add Attribution",
+    title = "ARKK vs Russell 3000: Cumulative Value-Add Attribution",
     subtitle = "Decomposing excess returns into factor tilts vs stock selection (rolling 3-year)",
     x = "",
     y = "Cumulative Value-Add",
-    fill = "Component",
+    fill = "",
     caption = "Black line = Total excess return • Data: alphavantage • Chart: brrymtnc"
   ) +
   theme_minimal(base_size = 11) +
