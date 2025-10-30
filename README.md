@@ -91,7 +91,7 @@ subject to:
 - **Non-negativity**: βᵢ ≥ 0 for all i (long-only positions)
 - **Unit sum**: Σβᵢ = 1 (fully invested portfolio)
 
-These constraints ensure the factor weights represent realistic portfolio allocations that institutional investors could implement. The resulting coefficients show how much of each factor exposure would be needed to replicate the target's return behavior.
+These constraints ensure the factor weights represent the long only mix of (low cost) factor ETFs that investors could implement to replicate the return profile of the target fund. The resulting coefficients show how much of each factor exposure would be needed to replicate the target's return profile.
 
 ### Implementation
 
@@ -147,7 +147,7 @@ To understand how ARKK's factor exposures differ from the Russell Midcap benchma
 
 ### Interpretation
 
-The bar charts show ARKK's active factor bets over time:
+The bar charts show ARKK's active factor tilts over time:
 - Bars above zero → ARKK overweight relative to IWR
 - Bars below zero → ARKK underweight relative to IWR
 - Extreme values (near ±100%) indicate concentrated single-factor allocations
@@ -188,10 +188,10 @@ Standard multiplicative compounding would violate this identity. Carino's method
 ### Interpretation
 
 - **Cumulative Factor Tilt Effects**: Value-add from ARKK's active factor positioning vs IWR
-- **Cumulative Idiosyncratic Effects**: Value-add from ARKK's stock-specific choices and residual alpha
+- **Cumulative Idiosyncratic Effects**: Value-add from ARKK's security selection (idiosyncratic) and timing (trading) effects
 - **Sum**: Total cumulative excess return (ARKK vs IWR)
 
-Negative values indicate underperformance. The decomposition reveals whether poor performance stems from factor allocation decisions or security selection.
+Negative values indicate underperformance. The decomposition reveals whether poor performance stems from common factor overweights / underweights or security selection.
 
 ## ARKK vs IWR: Cumulative Value-Add Attribution
 
