@@ -1,25 +1,39 @@
 # Factor-Neutral Portfolio Analysis
-# Creates a portfolio that is 100% long ARKK but neutralizes factor tilts
-# relative to Russell 3000 by taking offsetting positions in factor ETFs
+# Creates a portfolio that is 100% long target but neutralizes factor tilts
+# relative to benchmark by taking offsetting positions in factor ETFs
 
 # Script Params ----
 
-roll_window <- 252L
+# CONFIGURE TICKERS HERE
+target_ticker <- "ARKK"
+benchmark_ticker <- "IWR"
 
+roll_window <- 252L
+save_images <- FALSE
+max_gross_exposure <- 2.0  # 200% cap
+
+# Date range filtering (set to NULL to use all available data)
+start_date <- "2016-01-01"  # e.g., "2020-01-01"
+end_date <- NULL            # e.g., "2024-12-31"
+
+# Complete ticker list (7-factor model)
 tickers <- c(
-  "ARKK", # ARK Innovation ETF (target)
-  "IWR",  # iShares Russell Midcap ETF (benchmark)
-  "IWD",  # R1000V
-  "IWF",  # R1000G
-  "IWN",  # R2000V
-  "IWO",  # R2000G
-  "MTUM", # MSCI Momentum
-  "USMV", # MSCI USA Min Vol
-  "QUAL", # MSCI USA Quality
-  "IJR"   # Small Cap Quality
+  target_ticker,    # Target fund
+  benchmark_ticker, # Benchmark
+  "IWD",            # R1000V
+  "IWF",            # R1000G
+  "IWN",            # R2000V
+  "IWO",            # R2000G
+  "MTUM",           # Momo
+  "USMV",           # MinVol
+  "QUAL"            # Quality
 )
 
-max_gross_exposure <- 2.0  # 200% cap
+factor_cols <- c("IWD", "IWF", "IWN", "IWO", "MTUM", "USMV", "QUAL")
+
+# Generate lowercase versions for file naming
+target_lower <- tolower(target_ticker)
+benchmark_lower <- tolower(benchmark_ticker)
 
 # Data Pulls ----
 
@@ -39,38 +53,50 @@ all_data <- all_data %>%
 
 return_data <- calculate_log_returns(all_data)
 
-# Prepare factor returns (exclude both ARKK and IWR from factors)
+# Apply date filtering if specified
+if (!is.null(start_date) || !is.null(end_date)) {
+  if (!is.null(start_date)) {
+    start_date_parsed <- lubridate::ymd(start_date)
+    return_data <- return_data %>% dplyr::filter(date >= start_date_parsed)
+    message(paste0("Filtering data: start_date >= ", start_date))
+  }
+  if (!is.null(end_date)) {
+    end_date_parsed <- lubridate::ymd(end_date)
+    return_data <- return_data %>% dplyr::filter(date <= end_date_parsed)
+    message(paste0("Filtering data: end_date <= ", end_date))
+  }
+}
+
+# Prepare factor returns (exclude both target and benchmark from factors)
 factor_returns <- return_data %>%
-  dplyr::filter(!ticker %in% c("ARKK", "IWR")) %>%
+  dplyr::filter(!ticker %in% c(target_ticker, benchmark_ticker)) %>%
   dplyr::select(date, ticker, return) %>%
   tidyr::pivot_wider(names_from = ticker, values_from = return)
 
-# Prepare ARKK returns
-arkk_returns <- return_data %>%
-  dplyr::filter(ticker == "ARKK") %>%
+# Prepare target returns
+target_returns <- return_data %>%
+  dplyr::filter(ticker == target_ticker) %>%
   dplyr::select(date, return)
 
-# Prepare IWR returns
-iwr_returns <- return_data %>%
-  dplyr::filter(ticker == "IWR") %>%
+# Prepare benchmark returns
+benchmark_returns <- return_data %>%
+  dplyr::filter(ticker == benchmark_ticker) %>%
   dplyr::select(date, return)
 
 # Create regression datasets
-arkk_regression_data <- arkk_returns %>%
+target_regression_data <- target_returns %>%
   dplyr::left_join(factor_returns, by = "date") %>%
   dplyr::filter(complete.cases(.))
 
-iwr_regression_data <- iwr_returns %>%
+benchmark_regression_data <- benchmark_returns %>%
   dplyr::left_join(factor_returns, by = "date") %>%
   dplyr::filter(complete.cases(.))
 
-# Rolling Multi-Factor Constrained Regression - ARKK ----
+# Rolling Multi-Factor Constrained Regression - Target ----
 
-factor_cols <- c("IWD", "IWF", "IWN", "IWO", "MTUM", "USMV", "QUAL", "IJR")
+message(paste0("Running ", target_ticker, " constrained regression (no intercept)..."))
 
-message("Running ARKK constrained regression (no intercept)...")
-
-arkk_weights <- arkk_regression_data %>%
+target_weights <- target_regression_data %>%
   dplyr::arrange(date) %>%
   dplyr::mutate(
     roll_res = list(roll_constrained_lm(
@@ -87,17 +113,16 @@ arkk_weights <- arkk_regression_data %>%
     IWO = roll_res[[1]]$coefficients[, "IWO"],
     MTUM = roll_res[[1]]$coefficients[, "MTUM"],
     USMV = roll_res[[1]]$coefficients[, "USMV"],
-    QUAL = roll_res[[1]]$coefficients[, "QUAL"],
-    IJR = roll_res[[1]]$coefficients[, "IJR"]
+    QUAL = roll_res[[1]]$coefficients[, "QUAL"]
   ) %>%
-  dplyr::select(date, IWD, IWF, IWN, IWO, MTUM, USMV, QUAL, IJR) %>%
+  dplyr::select(date, IWD, IWF, IWN, IWO, MTUM, USMV, QUAL) %>%
   dplyr::filter(!is.na(IWD))
 
-# Rolling Multi-Factor Constrained Regression - IWR ----
+# Rolling Multi-Factor Constrained Regression - Benchmark ----
 
-message("Running IWR constrained regression (no intercept)...")
+message(paste0("Running ", benchmark_ticker, " constrained regression (no intercept)..."))
 
-iwr_weights <- iwr_regression_data %>%
+benchmark_weights <- benchmark_regression_data %>%
   dplyr::arrange(date) %>%
   dplyr::mutate(
     roll_res = list(roll_constrained_lm(
@@ -114,39 +139,37 @@ iwr_weights <- iwr_regression_data %>%
     IWO = roll_res[[1]]$coefficients[, "IWO"],
     MTUM = roll_res[[1]]$coefficients[, "MTUM"],
     USMV = roll_res[[1]]$coefficients[, "USMV"],
-    QUAL = roll_res[[1]]$coefficients[, "QUAL"],
-    IJR = roll_res[[1]]$coefficients[, "IJR"]
+    QUAL = roll_res[[1]]$coefficients[, "QUAL"]
   ) %>%
-  dplyr::select(date, IWD, IWF, IWN, IWO, MTUM, USMV, QUAL, IJR) %>%
+  dplyr::select(date, IWD, IWF, IWN, IWO, MTUM, USMV, QUAL) %>%
   dplyr::filter(!is.na(IWD))
 
 # Calculate Hedge Weights ----
 
 message("Calculating factor hedge weights...")
 
-hedge_weights <- arkk_weights %>%
-  dplyr::inner_join(iwr_weights, by = "date", suffix = c("_arkk", "_iwr")) %>%
+hedge_weights <- target_weights %>%
+  dplyr::inner_join(benchmark_weights, by = "date", suffix = c("_target", "_benchmark")) %>%
   dplyr::mutate(
-    hedge_IWD = IWD_iwr - IWD_arkk,
-    hedge_IWF = IWF_iwr - IWF_arkk,
-    hedge_IWN = IWN_iwr - IWN_arkk,
-    hedge_IWO = IWO_iwr - IWO_arkk,
-    hedge_MTUM = MTUM_iwr - MTUM_arkk,
-    hedge_USMV = USMV_iwr - USMV_arkk,
-    hedge_QUAL = QUAL_iwr - QUAL_arkk,
-    hedge_IJR = IJR_iwr - IJR_arkk
+    hedge_IWD = IWD_benchmark - IWD_target,
+    hedge_IWF = IWF_benchmark - IWF_target,
+    hedge_IWN = IWN_benchmark - IWN_target,
+    hedge_IWO = IWO_benchmark - IWO_target,
+    hedge_MTUM = MTUM_benchmark - MTUM_target,
+    hedge_USMV = USMV_benchmark - USMV_target,
+    hedge_QUAL = QUAL_benchmark - QUAL_target
   ) %>%
   dplyr::select(
     date,
     hedge_IWD, hedge_IWF, hedge_IWN, hedge_IWO,
-    hedge_MTUM, hedge_USMV, hedge_QUAL, hedge_IJR
+    hedge_MTUM, hedge_USMV, hedge_QUAL
   )
 
 # Calculate gross exposure and apply cap
 hedge_weights <- hedge_weights %>%
   dplyr::mutate(
     gross_exposure_uncapped = 1.0 + abs(hedge_IWD) + abs(hedge_IWF) + abs(hedge_IWN) +
-      abs(hedge_IWO) + abs(hedge_MTUM) + abs(hedge_USMV) + abs(hedge_QUAL) + abs(hedge_IJR),
+      abs(hedge_IWO) + abs(hedge_MTUM) + abs(hedge_USMV) + abs(hedge_QUAL),
     scale_factor = dplyr::if_else(
       gross_exposure_uncapped > max_gross_exposure,
       (max_gross_exposure - 1.0) / (gross_exposure_uncapped - 1.0),
@@ -159,11 +182,10 @@ hedge_weights <- hedge_weights %>%
     hedge_MTUM = hedge_MTUM * scale_factor,
     hedge_USMV = hedge_USMV * scale_factor,
     hedge_QUAL = hedge_QUAL * scale_factor,
-    hedge_IJR = hedge_IJR * scale_factor,
     gross_exposure = 1.0 + abs(hedge_IWD) + abs(hedge_IWF) + abs(hedge_IWN) +
-      abs(hedge_IWO) + abs(hedge_MTUM) + abs(hedge_USMV) + abs(hedge_QUAL) + abs(hedge_IJR),
+      abs(hedge_IWO) + abs(hedge_MTUM) + abs(hedge_USMV) + abs(hedge_QUAL),
     net_exposure = 1.0 + hedge_IWD + hedge_IWF + hedge_IWN + hedge_IWO +
-      hedge_MTUM + hedge_USMV + hedge_QUAL + hedge_IJR
+      hedge_MTUM + hedge_USMV + hedge_QUAL
   ) %>%
   dplyr::select(-gross_exposure_uncapped, -scale_factor)
 
@@ -180,23 +202,23 @@ neutral_returns <- hedge_weights %>%
     by = "future_date"
   ) %>%
   dplyr::inner_join(
-    arkk_returns %>% dplyr::rename(future_date = date, arkk_return = return),
+    target_returns %>% dplyr::rename(future_date = date, target_return = return),
     by = "future_date"
   ) %>%
   dplyr::inner_join(
-    iwr_returns %>% dplyr::rename(future_date = date, iwr_return = return),
+    benchmark_returns %>% dplyr::rename(future_date = date, benchmark_return = return),
     by = "future_date"
   ) %>%
   dplyr::mutate(
     hedge_return = hedge_IWD * IWD + hedge_IWF * IWF + hedge_IWN * IWN +
       hedge_IWO * IWO + hedge_MTUM * MTUM + hedge_USMV * USMV +
-      hedge_QUAL * QUAL + hedge_IJR * IJR,
-    neutral_return = arkk_return + hedge_return
+      hedge_QUAL * QUAL,
+    neutral_return = target_return + hedge_return
   ) %>%
   dplyr::select(
     date = future_date,
-    arkk_return,
-    iwr_return,
+    target_return,
+    benchmark_return,
     neutral_return,
     hedge_return,
     gross_exposure,
@@ -210,15 +232,15 @@ message("Calculating cumulative returns...")
 cumulative_returns <- neutral_returns %>%
   dplyr::arrange(date) %>%
   dplyr::mutate(
-    excess_arkk_vs_iwr = arkk_return - iwr_return,
-    excess_neutral_vs_iwr = neutral_return - iwr_return,
-    excess_neutral_vs_arkk = neutral_return - arkk_return,
-    cum_arkk = cumprod(1 + arkk_return) - 1,
-    cum_iwr = cumprod(1 + iwr_return) - 1,
+    excess_target_vs_benchmark = target_return - benchmark_return,
+    excess_neutral_vs_benchmark = neutral_return - benchmark_return,
+    excess_neutral_vs_target = neutral_return - target_return,
+    cum_target = cumprod(1 + target_return) - 1,
+    cum_benchmark = cumprod(1 + benchmark_return) - 1,
     cum_neutral = cumprod(1 + neutral_return) - 1,
-    cum_excess_arkk_vs_iwr = cumprod(1 + excess_arkk_vs_iwr) - 1,
-    cum_excess_neutral_vs_iwr = cumprod(1 + excess_neutral_vs_iwr) - 1,
-    cum_excess_neutral_vs_arkk = cumprod(1 + excess_neutral_vs_arkk) - 1
+    cum_excess_target_vs_benchmark = cumprod(1 + excess_target_vs_benchmark) - 1,
+    cum_excess_neutral_vs_benchmark = cumprod(1 + excess_neutral_vs_benchmark) - 1,
+    cum_excess_neutral_vs_target = cumprod(1 + excess_neutral_vs_target) - 1
   )
 
 # Diagnostics ----
@@ -242,34 +264,34 @@ message(paste0("  SD net exposure: ", round(exposure_stats$sd_net, 3)))
 
 return_stats <- neutral_returns %>%
   dplyr::summarise(
-    mean_arkk = mean(arkk_return, na.rm = TRUE),
-    mean_iwr = mean(iwr_return, na.rm = TRUE),
+    mean_target = mean(target_return, na.rm = TRUE),
+    mean_benchmark = mean(benchmark_return, na.rm = TRUE),
     mean_neutral = mean(neutral_return, na.rm = TRUE),
-    sd_arkk = sd(arkk_return, na.rm = TRUE),
-    sd_iwr = sd(iwr_return, na.rm = TRUE),
+    sd_target = sd(target_return, na.rm = TRUE),
+    sd_benchmark = sd(benchmark_return, na.rm = TRUE),
     sd_neutral = sd(neutral_return, na.rm = TRUE)
   )
 
 message("\nDaily return statistics:")
-message(paste0("  ARKK mean: ", round(return_stats$mean_arkk * 252 * 100, 2), "% ann."))
-message(paste0("  Russell Midcap mean: ", round(return_stats$mean_iwr * 252 * 100, 2), "% ann."))
+message(paste0("  ", target_ticker, " mean: ", round(return_stats$mean_target * 252 * 100, 2), "% ann."))
+message(paste0("  ", benchmark_ticker, " mean: ", round(return_stats$mean_benchmark * 252 * 100, 2), "% ann."))
 message(paste0("  Neutral mean: ", round(return_stats$mean_neutral * 252 * 100, 2), "% ann."))
-message(paste0("  ARKK vol: ", round(return_stats$sd_arkk * sqrt(252) * 100, 2), "% ann."))
-message(paste0("  Russell Midcap vol: ", round(return_stats$sd_iwr * sqrt(252) * 100, 2), "% ann."))
+message(paste0("  ", target_ticker, " vol: ", round(return_stats$sd_target * sqrt(252) * 100, 2), "% ann."))
+message(paste0("  ", benchmark_ticker, " vol: ", round(return_stats$sd_benchmark * sqrt(252) * 100, 2), "% ann."))
 message(paste0("  Neutral vol: ", round(return_stats$sd_neutral * sqrt(252) * 100, 2), "% ann."))
 
 final_values <- cumulative_returns %>%
   dplyr::slice_tail(n = 1) %>%
-  dplyr::select(date, cum_arkk, cum_iwr, cum_neutral, cum_excess_arkk_vs_iwr, cum_excess_neutral_vs_iwr)
+  dplyr::select(date, cum_target, cum_benchmark, cum_neutral, cum_excess_target_vs_benchmark, cum_excess_neutral_vs_benchmark)
 
 message("\nFinal cumulative returns:")
-message(paste0("  ARKK: ", round(final_values$cum_arkk * 100, 2), "%"))
-message(paste0("  Russell Midcap: ", round(final_values$cum_iwr * 100, 2), "%"))
+message(paste0("  ", target_ticker, ": ", round(final_values$cum_target * 100, 2), "%"))
+message(paste0("  ", benchmark_ticker, ": ", round(final_values$cum_benchmark * 100, 2), "%"))
 message(paste0("  Factor-Neutral: ", round(final_values$cum_neutral * 100, 2), "%"))
 
 message("\nFinal cumulative excess returns:")
-message(paste0("  ARKK vs Russell Midcap: ", round(final_values$cum_excess_arkk_vs_iwr * 100, 2), "%"))
-message(paste0("  Neutral vs Russell Midcap: ", round(final_values$cum_excess_neutral_vs_iwr * 100, 2), "%"))
+message(paste0("  ", target_ticker, " vs ", benchmark_ticker, ": ", round(final_values$cum_excess_target_vs_benchmark * 100, 2), "%"))
+message(paste0("  Neutral vs ", benchmark_ticker, ": ", round(final_values$cum_excess_neutral_vs_benchmark * 100, 2), "%"))
 
 # Dataviz ----
 
@@ -278,17 +300,17 @@ library(scales)
 
 # Chart 1: Cumulative Returns Comparison
 p1 <- cumulative_returns %>%
-  dplyr::select(date, cum_arkk, cum_iwr, cum_neutral) %>%
+  dplyr::select(date, cum_target, cum_benchmark, cum_neutral) %>%
   tidyr::pivot_longer(
-    cols = c(cum_arkk, cum_iwr, cum_neutral),
+    cols = c(cum_target, cum_benchmark, cum_neutral),
     names_to = "strategy",
     values_to = "cumulative_return"
   ) %>%
   dplyr::mutate(
     strategy = dplyr::case_when(
-      strategy == "cum_arkk" ~ "ARKK",
-      strategy == "cum_iwr" ~ "Russell Midcap",
-      strategy == "cum_neutral" ~ "Factor-Neutral ARKK",
+      strategy == "cum_target" ~ target_ticker,
+      strategy == "cum_benchmark" ~ benchmark_ticker,
+      strategy == "cum_neutral" ~ paste0("Factor-Neutral ", target_ticker),
       TRUE ~ strategy
     )
   ) %>%
@@ -304,14 +326,14 @@ p1 <- cumulative_returns %>%
   ) +
   scale_color_manual(
     values = c(
-      "ARKK" = "#d73027",
-      "Russell Midcap" = "#4575b4",
-      "Factor-Neutral ARKK" = "#1a9850"
+      setNames("#d73027", target_ticker),
+      setNames("#4575b4", benchmark_ticker),
+      setNames("#1a9850", paste0("Factor-Neutral ", target_ticker))
     )
   ) +
   labs(
-    title = "Factor-Neutral ARKK: Isolating Selection Effect",
-    subtitle = "100% ARKK + factor hedges to neutralize tilts vs Russell Midcap (rolling 1-year)",
+    title = paste0("Factor-Neutral ", target_ticker, ": Isolating Idiosyncratic Effects"),
+    subtitle = paste0("100% ", target_ticker, " + factor hedges to neutralize tilts vs ", benchmark_ticker, " (rolling 1-year)"),
     x = "",
     y = "Cumulative Return",
     color = "",
@@ -361,8 +383,8 @@ p2 <- neutral_returns %>%
     )
   ) +
   labs(
-    title = "Factor-Neutral Portfolio: Leverage and Exposure",
-    subtitle = paste0("Gross exposure capped at ", scales::percent(max_gross_exposure), " • Net exposure should stay near 100%"),
+    title = paste0("Factor-Neutral ", target_ticker, ": Leverage and Exposure"),
+    subtitle = paste0("Gross exposure capped at ", scales::percent(max_gross_exposure), " • Net exposure stays near 100%"),
     x = "",
     y = "Exposure",
     color = "",
@@ -381,22 +403,22 @@ print(p2)
 
 # Chart 3: Excess Returns vs Benchmarks
 p3 <- cumulative_returns %>%
-  dplyr::select(date, cum_excess_neutral_vs_iwr, cum_excess_neutral_vs_arkk, cum_excess_arkk_vs_iwr) %>%
+  dplyr::select(date, cum_excess_neutral_vs_benchmark, cum_excess_neutral_vs_target, cum_excess_target_vs_benchmark) %>%
   dplyr::rename(
-    neutral_vs_russell = cum_excess_neutral_vs_iwr,
-    neutral_vs_arkk = cum_excess_neutral_vs_arkk,
-    arkk_vs_russell = cum_excess_arkk_vs_iwr
+    neutral_vs_benchmark = cum_excess_neutral_vs_benchmark,
+    neutral_vs_target = cum_excess_neutral_vs_target,
+    target_vs_benchmark = cum_excess_target_vs_benchmark
   ) %>%
   tidyr::pivot_longer(
-    cols = c(neutral_vs_russell, neutral_vs_arkk, arkk_vs_russell),
+    cols = c(neutral_vs_benchmark, neutral_vs_target, target_vs_benchmark),
     names_to = "comparison",
     values_to = "excess_return"
   ) %>%
   dplyr::mutate(
     comparison = dplyr::case_when(
-      comparison == "neutral_vs_russell" ~ "Neutral vs Russell 3000",
-      comparison == "neutral_vs_arkk" ~ "Neutral vs ARKK",
-      comparison == "arkk_vs_russell" ~ "ARKK vs Russell 3000",
+      comparison == "neutral_vs_benchmark" ~ paste0("Neutral vs ", benchmark_ticker),
+      comparison == "neutral_vs_target" ~ paste0("Neutral vs ", target_ticker),
+      comparison == "target_vs_benchmark" ~ paste0(target_ticker, " vs ", benchmark_ticker),
       TRUE ~ comparison
     )
   ) %>%
@@ -411,15 +433,18 @@ p3 <- cumulative_returns %>%
     labels = scales::percent_format()
   ) +
   scale_color_manual(
-    values = c(
-      "Neutral vs Russell Midcap" = "#1a9850",
-      "Neutral vs ARKK" = "#d73027",
-      "ARKK vs Russell Midcap" = "#4575b4"
+    values = setNames(
+      c("#1a9850", "#d73027", "#4575b4"),
+      c(
+        paste0("Neutral vs ", benchmark_ticker),
+        paste0("Neutral vs ", target_ticker),
+        paste0(target_ticker, " vs ", benchmark_ticker)
+      )
     )
   ) +
   labs(
     title = "Excess Returns: Factor-Neutral vs Benchmarks",
-    subtitle = "Neutral portfolio should track close to Russell Midcap (neutralized factors), differ from ARKK (no factor tilts)",
+    subtitle = paste0("Neutral portfolio tracks close to ", benchmark_ticker, " (neutralized factors), differs from ", target_ticker, " (no factor tilts)"),
     x = "",
     y = "Cumulative Excess Return",
     color = "",
@@ -437,30 +462,42 @@ p3 <- cumulative_returns %>%
 print(p3)
 
 # Save charts
-if (!dir.exists("images")) dir.create("images")
+if (save_images && !dir.exists("images")) dir.create("images")
 
-ggsave(
-  "images/factor_neutral_cumulative_returns.svg",
-  plot = p1,
-  width = 12,
-  height = 7,
-  dpi = 320
-)
+cumulative_file <- paste0("images/factor_neutral_", target_lower, "_cumulative_returns.svg")
+exposure_file <- paste0("images/factor_neutral_", target_lower, "_exposure.svg")
+excess_file <- paste0("images/factor_neutral_", target_lower, "_excess_returns.svg")
 
-ggsave(
-  "images/factor_neutral_exposure.svg",
-  plot = p2,
-  width = 12,
-  height = 7,
-  dpi = 320
-)
+if (save_images) {
+  ggsave(
+    cumulative_file,
+    plot = p1,
+    width = 12,
+    height = 7,
+    dpi = 320
+  )
+  message(paste0("✓ Cumulative returns chart saved to ", cumulative_file))
 
-ggsave(
-  "images/factor_neutral_excess_returns.svg",
-  plot = p3,
-  width = 12,
-  height = 7,
-  dpi = 320
-)
+  ggsave(
+    exposure_file,
+    plot = p2,
+    width = 12,
+    height = 7,
+    dpi = 320
+  )
+  message(paste0("✓ Exposure chart saved to ", exposure_file))
 
-message("\n✓ Analysis complete! Charts saved to images/ directory")
+  ggsave(
+    excess_file,
+    plot = p3,
+    width = 12,
+    height = 7,
+    dpi = 320
+  )
+  message(paste0("✓ Excess returns chart saved to ", excess_file))
+}
+
+message("\n✓ Analysis complete!")
+if (save_images) {
+  message("✓ Charts saved to images/ directory")
+}

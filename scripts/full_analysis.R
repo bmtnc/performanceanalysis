@@ -4,8 +4,8 @@
 # Script Params ----
 
 # CONFIGURE TICKERS HERE
-target_ticker <- "ARKK"
-benchmark_ticker <- "IWR"
+target_ticker <- "PSLDX"
+benchmark_ticker <- "SPY"
 
 roll_window <- 252L
 save_images <- TRUE
