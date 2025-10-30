@@ -1,18 +1,18 @@
 # Script Params ----
 
-roll_window <- 756L # 3Y
+roll_window <- 252L
 
 tickers <- c(
   "ARKK", # ARK Innovation ETF (target)
-  "IWV",  # iShares Russell 3000 ETF (benchmark)
+  "IWR",  # iShares Russell Midcap ETF (benchmark)
   "IWD",  # R1000V
   "IWF",  # R1000G
   "IWN",  # R2000V
   "IWO",  # R2000G
   "MTUM", # MSCI Momentum
   "USMV", # MSCI USA Min Vol
-  "QUAL", # MSCI USA Quality
-  "IJR"   # Small Cap Quality
+  "QUAL" # MSCI USA Quality
+  # "IJR"   # Small Cap Quality
 )
 
 # Data Pulls ----
@@ -33,9 +33,9 @@ all_data <- all_data %>%
 
 return_data <- calculate_log_returns(all_data)
 
-# Prepare factor returns (exclude both ARKK and IWV from factors)
+# Prepare factor returns (exclude both ARKK and IWR from factors)
 factor_returns <- return_data %>%
-  dplyr::filter(!ticker %in% c("ARKK", "IWV")) %>%
+  dplyr::filter(!ticker %in% c("ARKK", "IWR")) %>%
   dplyr::select(date, ticker, return) %>%
   tidyr::pivot_wider(names_from = ticker, values_from = return)
 
@@ -44,9 +44,9 @@ arkk_returns <- return_data %>%
   dplyr::filter(ticker == "ARKK") %>%
   dplyr::select(date, return)
 
-# Prepare IWV returns
-iwv_returns <- return_data %>%
-  dplyr::filter(ticker == "IWV") %>%
+# Prepare IWR returns
+iwr_returns <- return_data %>%
+  dplyr::filter(ticker == "IWR") %>%
   dplyr::select(date, return)
 
 # Create regression datasets
@@ -54,13 +54,13 @@ arkk_regression_data <- arkk_returns %>%
   dplyr::left_join(factor_returns, by = "date") %>%
   dplyr::filter(complete.cases(.))
 
-iwv_regression_data <- iwv_returns %>%
+iwr_regression_data <- iwr_returns %>%
   dplyr::left_join(factor_returns, by = "date") %>%
   dplyr::filter(complete.cases(.))
 
 # Rolling Multi-Factor Constrained Regression - ARKK ----
 
-factor_cols <- c("IWD", "IWF", "IWN", "IWO", "MTUM", "USMV", "QUAL", "IJR")
+factor_cols <- c("IWD", "IWF", "IWN", "IWO", "MTUM", "USMV", "QUAL")
 
 message("Running ARKK constrained regression (no intercept)...")
 
@@ -81,8 +81,8 @@ arkk_weights <- arkk_regression_data %>%
     IWO = roll_res[[1]]$coefficients[, "IWO"],
     MTUM = roll_res[[1]]$coefficients[, "MTUM"],
     USMV = roll_res[[1]]$coefficients[, "USMV"],
-    QUAL = roll_res[[1]]$coefficients[, "QUAL"],
-    IJR = roll_res[[1]]$coefficients[, "IJR"]
+    QUAL = roll_res[[1]]$coefficients[, "QUAL"]
+    # IJR = roll_res[[1]]$coefficients[, "IJR"]
   ) %>%
   dplyr::select(
     date,
@@ -92,16 +92,16 @@ arkk_weights <- arkk_regression_data %>%
     IWO,
     MTUM,
     USMV,
-    QUAL,
-    IJR
+    QUAL
+    # IJR
   ) %>%
   dplyr::filter(!is.na(IWD))
 
-# Rolling Multi-Factor Constrained Regression - IWV ----
+# Rolling Multi-Factor Constrained Regression - IWR ----
 
-message("Running IWV constrained regression (no intercept)...")
+message("Running IWR constrained regression (no intercept)...")
 
-iwv_weights <- iwv_regression_data %>%
+iwr_weights <- iwr_regression_data %>%
   dplyr::arrange(date) %>%
   dplyr::mutate(
     roll_res = list(roll_constrained_lm(
@@ -118,8 +118,8 @@ iwv_weights <- iwv_regression_data %>%
     IWO = roll_res[[1]]$coefficients[, "IWO"],
     MTUM = roll_res[[1]]$coefficients[, "MTUM"],
     USMV = roll_res[[1]]$coefficients[, "USMV"],
-    QUAL = roll_res[[1]]$coefficients[, "QUAL"],
-    IJR = roll_res[[1]]$coefficients[, "IJR"]
+    QUAL = roll_res[[1]]$coefficients[, "QUAL"]
+    # IJR = roll_res[[1]]$coefficients[, "IJR"]
   ) %>%
   dplyr::select(
     date,
@@ -129,8 +129,8 @@ iwv_weights <- iwv_regression_data %>%
     IWO,
     MTUM,
     USMV,
-    QUAL,
-    IJR
+    QUAL
+    # IJR
   ) %>%
   dplyr::filter(!is.na(IWD))
 
@@ -140,10 +140,10 @@ message("Calculating factor attribution...")
 
 daily_attribution <- calculate_factor_attribution(
   target_weights = arkk_weights,
-  benchmark_weights = iwv_weights,
+  benchmark_weights = iwr_weights,
   factor_returns = factor_returns,
   target_returns = arkk_returns,
-  benchmark_returns = iwv_returns,
+  benchmark_returns = iwr_returns,
   factor_cols = factor_cols
 )
 
@@ -262,8 +262,8 @@ p1 <- viz_cumulative %>%
     )
   ) +
   labs(
-    title = "ARKK vs Russell 3000: Cumulative Value-Add Attribution",
-    subtitle = "Decomposing excess returns into factor tilts vs stock selection (rolling 3-year)",
+    title = "ARKK vs Russell Midcap Index: Cumulative Value-Add Attribution",
+    subtitle = "Decomposing excess returns into factor tilts vs stock selection (rolling 1-year)",
     x = "",
     y = "Cumulative Value-Add",
     fill = "",
@@ -284,7 +284,7 @@ print(p1)
 # Save chart 1
 if (!dir.exists("images")) dir.create("images")
 ggsave(
-  "images/arkk_iwv_cumulative_attribution.svg",
+  "images/arkk_iwr_cumulative_attribution.svg",
   plot = p1,
   width = 12,
   height = 7,

@@ -1,18 +1,18 @@
 # Script Params ----
 
-roll_window <- 756L # 3Y
+roll_window <- 252L
 
 tickers <- c(
     "ARKK", # ARK Innovation ETF (target)
-    "IWV",  # iShares Russell 3000 ETF (benchmark)
+    "IWR",  # iShares Russell Midcap ETF (benchmark)
     "IWD",  # R1000V
     "IWF",  # R1000G
     "IWN",  # R2000V
     "IWO",  # R2000G
     "MTUM", # MSCI Momentum
     "USMV", # MSCI USA Min Vol
-    "QUAL", # MSCI USA Quality
-    "IJR"   # Small Cap Quality
+    "QUAL" # MSCI USA Quality
+    # "IJR"   # Small Cap Quality
 )
 
 # Data Pulls ----
@@ -31,9 +31,9 @@ all_data <- all_data %>%
 
 return_data <- calculate_log_returns(all_data)
 
-# Prepare factor returns (exclude both ARKK and IWV from factors)
+# Prepare factor returns (exclude both ARKK and IWR from factors)
 factor_returns <- return_data %>%
-    dplyr::filter(!ticker %in% c("ARKK", "IWV")) %>%
+    dplyr::filter(!ticker %in% c("ARKK", "IWR")) %>%
     dplyr::select(date, ticker, return) %>%
     tidyr::pivot_wider(names_from = ticker, values_from = return)
 
@@ -42,23 +42,23 @@ arkk_returns <- return_data %>%
     dplyr::filter(ticker == "ARKK") %>%
     dplyr::select(date, arkk_return = return)
 
-# Prepare IWV returns
-iwv_returns <- return_data %>%
-    dplyr::filter(ticker == "IWV") %>%
-    dplyr::select(date, iwv_return = return)
+# Prepare IWR returns
+iwr_returns <- return_data %>%
+    dplyr::filter(ticker == "IWR") %>%
+    dplyr::select(date, iwr_return = return)
 
 # Create regression datasets
 arkk_regression_data <- arkk_returns %>%
     dplyr::left_join(factor_returns, by = "date") %>%
     dplyr::filter(complete.cases(.))
 
-iwv_regression_data <- iwv_returns %>%
+iwr_regression_data <- iwr_returns %>%
     dplyr::left_join(factor_returns, by = "date") %>%
     dplyr::filter(complete.cases(.))
 
 # Rolling Multi-Factor Constrained Regression - ARKK ----
 
-factor_cols <- c("IWD", "IWF", "IWN", "IWO", "MTUM", "USMV", "QUAL", "IJR")
+factor_cols <- c("IWD", "IWF", "IWN", "IWO", "MTUM", "USMV", "QUAL")
 
 arkk_decomposition <- arkk_regression_data %>%
     dplyr::arrange(date) %>%
@@ -78,8 +78,8 @@ arkk_decomposition <- arkk_regression_data %>%
         small_growth = roll_res[[1]]$coefficients[, "IWO"],
         momentum = roll_res[[1]]$coefficients[, "MTUM"],
         min_vol = roll_res[[1]]$coefficients[, "USMV"],
-        quality = roll_res[[1]]$coefficients[, "QUAL"],
-        small_quality = roll_res[[1]]$coefficients[, "IJR"]
+        quality = roll_res[[1]]$coefficients[, "QUAL"]
+        # small_quality = roll_res[[1]]$coefficients[, "IJR"]
     ) %>%
     dplyr::select(
         date,
@@ -90,19 +90,19 @@ arkk_decomposition <- arkk_regression_data %>%
         small_growth,
         momentum,
         min_vol,
-        quality,
-        small_quality
+        quality
+        # small_quality
     ) %>%
     dplyr::filter(!is.na(alpha))
 
-# Rolling Multi-Factor Constrained Regression - IWV ----
+# Rolling Multi-Factor Constrained Regression - IWR ----
 
-iwv_decomposition <- iwv_regression_data %>%
+iwr_decomposition <- iwr_regression_data %>%
     dplyr::arrange(date) %>%
     dplyr::mutate(
         roll_res = list(roll_constrained_lm(
             x = as.matrix(dplyr::select(., dplyr::all_of(factor_cols))),
-            y = iwv_return,
+            y = iwr_return,
             width = roll_window,
             non_negative = TRUE,
             sum_to_one = TRUE,
@@ -115,8 +115,8 @@ iwv_decomposition <- iwv_regression_data %>%
         small_growth = roll_res[[1]]$coefficients[, "IWO"],
         momentum = roll_res[[1]]$coefficients[, "MTUM"],
         min_vol = roll_res[[1]]$coefficients[, "USMV"],
-        quality = roll_res[[1]]$coefficients[, "QUAL"],
-        small_quality = roll_res[[1]]$coefficients[, "IJR"]
+        quality = roll_res[[1]]$coefficients[, "QUAL"]
+        # small_quality = roll_res[[1]]$coefficients[, "IJR"]
     ) %>%
     dplyr::select(
         date,
@@ -127,8 +127,8 @@ iwv_decomposition <- iwv_regression_data %>%
         small_growth,
         momentum,
         min_vol,
-        quality,
-        small_quality
+        quality
+        # small_quality
     ) %>%
     dplyr::filter(!is.na(alpha))
 
@@ -136,20 +136,20 @@ iwv_decomposition <- iwv_regression_data %>%
 
 factor_differences <- arkk_decomposition %>%
     dplyr::inner_join(
-        iwv_decomposition,
+        iwr_decomposition,
         by = "date",
-        suffix = c("_arkk", "_iwv")
+        suffix = c("_arkk", "_iwr")
     ) %>%
     dplyr::mutate(
-        large_value_diff = large_value_arkk - large_value_iwv,
-        large_growth_diff = large_growth_arkk - large_growth_iwv,
-        small_value_diff = small_value_arkk - small_value_iwv,
-        small_growth_diff = small_growth_arkk - small_growth_iwv,
-        momentum_diff = momentum_arkk - momentum_iwv,
-        min_vol_diff = min_vol_arkk - min_vol_iwv,
-        quality_diff = quality_arkk - quality_iwv,
-        small_quality_diff = small_quality_arkk - small_quality_iwv,
-        alpha_diff = alpha_arkk - alpha_iwv
+        large_value_diff = large_value_arkk - large_value_iwr,
+        large_growth_diff = large_growth_arkk - large_growth_iwr,
+        small_value_diff = small_value_arkk - small_value_iwr,
+        small_growth_diff = small_growth_arkk - small_growth_iwr,
+        momentum_diff = momentum_arkk - momentum_iwr,
+        min_vol_diff = min_vol_arkk - min_vol_iwr,
+        quality_diff = quality_arkk - quality_iwr,
+        # small_quality_diff = small_quality_arkk - small_quality_iwr,
+        alpha_diff = alpha_arkk - alpha_iwr
     ) %>%
     dplyr::select(
         date,
@@ -160,7 +160,7 @@ factor_differences <- arkk_decomposition %>%
         momentum_diff,
         min_vol_diff,
         quality_diff,
-        small_quality_diff,
+        # small_quality_diff,
         alpha_diff
     )
 
@@ -178,8 +178,8 @@ na_counts <- factor_differences %>%
         small_growth = sum(is.na(small_growth_diff)),
         momentum = sum(is.na(momentum_diff)),
         min_vol = sum(is.na(min_vol_diff)),
-        quality = sum(is.na(quality_diff)),
-        small_quality = sum(is.na(small_quality_diff))
+        quality = sum(is.na(quality_diff))
+        # small_quality = sum(is.na(small_quality_diff))
     )
 
 message("NA counts by factor:")
@@ -194,8 +194,8 @@ range_violations <- factor_differences %>%
         abs(small_growth_diff) > 1 |
         abs(momentum_diff) > 1 |
         abs(min_vol_diff) > 1 |
-        abs(quality_diff) > 1 |
-        abs(small_quality_diff) > 1
+        abs(quality_diff) > 1 
+        # abs(small_quality_diff) > 1
     )
 
 if (nrow(range_violations) > 0) {
@@ -228,8 +228,8 @@ max_differences <- factor_differences %>%
         small_growth_max = max(abs(small_growth_diff), na.rm = TRUE),
         momentum_max = max(abs(momentum_diff), na.rm = TRUE),
         min_vol_max = max(abs(min_vol_diff), na.rm = TRUE),
-        quality_max = max(abs(quality_diff), na.rm = TRUE),
-        small_quality_max = max(abs(small_quality_diff), na.rm = TRUE)
+        quality_max = max(abs(quality_diff), na.rm = TRUE)
+        # small_quality_max = max(abs(small_quality_diff), na.rm = TRUE)
     )
 
 message("\nMaximum absolute differences by factor:")
@@ -243,7 +243,7 @@ if (max_differences$small_growth_max >= materiality_threshold) material_factors 
 if (max_differences$momentum_max >= materiality_threshold) material_factors <- c(material_factors, "momentum_diff")
 if (max_differences$min_vol_max >= materiality_threshold) material_factors <- c(material_factors, "min_vol_diff")
 if (max_differences$quality_max >= materiality_threshold) material_factors <- c(material_factors, "quality_diff")
-if (max_differences$small_quality_max >= materiality_threshold) material_factors <- c(material_factors, "small_quality_diff")
+# if (max_differences$small_quality_max >= materiality_threshold) material_factors <- c(material_factors, "small_quality_diff")
 
 message(paste0("\nFactors exceeding ", materiality_threshold * 100, "% materiality threshold:"))
 message(paste(material_factors, collapse = ", "))
@@ -262,8 +262,8 @@ viz_data <- factor_differences %>%
             small_growth_diff,
             momentum_diff,
             min_vol_diff,
-            quality_diff,
-            small_quality_diff
+            quality_diff
+            # small_quality_diff
         ),
         names_to = "factor",
         values_to = "difference"
@@ -271,14 +271,14 @@ viz_data <- factor_differences %>%
     dplyr::filter(factor %in% material_factors) %>%
     dplyr::mutate(
         factor = dplyr::case_when(
-            factor == "large_value_diff" ~ "Large Value",
-            factor == "large_growth_diff" ~ "Large Growth",
-            factor == "small_value_diff" ~ "Small Value",
-            factor == "small_growth_diff" ~ "Small Growth",
-            factor == "momentum_diff" ~ "Momentum",
+            factor == "large_value_diff" ~ "LCV",
+            factor == "large_growth_diff" ~ "LCG",
+            factor == "small_value_diff" ~ "SCV",
+            factor == "small_growth_diff" ~ "SCG",
+            factor == "momentum_diff" ~ "Momo",
             factor == "min_vol_diff" ~ "Min Vol",
             factor == "quality_diff" ~ "Quality",
-            factor == "small_quality_diff" ~ "Small Quality",
+            # factor == "small_quality_diff" ~ "Small Quality",
             TRUE ~ factor
         )
     )
@@ -297,13 +297,13 @@ viz_data <- viz_data %>%
 
 factor_colors <- c(
     "Large Value" = "#fc8d62",
-    "Large Growth" = "#8da0cb",
-    "Small Value" = "#66c2a5",
-    "Small Growth" = "#e78ac3",
-    "Momentum" = "#ffd92f",
+    "LCG" = "#8da0cb",
+    "SCV" = "#66c2a5",
+    "SCG" = "#e78ac3",
+    "Momo" = "#ffd92f",
     "Min Vol" = "#e5c494",
-    "Quality" = "#b3b3b3",
-    "Small Quality" = "#a6d854"
+    "Quality" = "#b3b3b3"
+    # "Small Quality" = "#a6d854"
 )
 
 p <- viz_data %>%
@@ -335,26 +335,26 @@ p <- viz_data %>%
         guide = "none"
     ) +
     labs(
-        title = "ARKK vs IWV: Factor Loading Differences Over Time",
-        subtitle = "Rolling 3-year constrained regression (ARKK loading - IWV loading)",
+        title = "ARKK vs Russell Midcap Index: Factor Loading Differences Over Time",
+        subtitle = "Rolling 1-year constrained regression (ARKK loading - RMid loading)",
         x = "",
         y = "Loading Difference",
         caption = "Data: alphavantage • Chart: brrymtnc"
     ) +
     theme_minimal(base_size = 11) +
     theme(
-        panel.grid.major.x = element_blank(),
-        panel.grid.minor.x = element_blank(),
-        panel.grid.major.y = element_line(color = "grey85", linewidth = 0.3),
-        panel.grid.minor.y = element_blank(),
-        plot.title = element_text(face = "bold", size = 14),
-        plot.subtitle = element_text(size = 11, margin = margin(b = 10)),
-        plot.caption = element_text(size = 8, color = "grey40", margin = margin(t = 10)),
-        axis.title.y = element_text(size = 10),
-        strip.text = element_text(face = "bold", size = 10, hjust = 0),
-        strip.background = element_rect(fill = "grey95", color = NA),
-        panel.spacing.y = unit(1.5, "lines"),
-        axis.text.x = element_text(angle = 0)
+      panel.grid.major.x = element_blank(),
+      panel.grid.minor.x = element_blank(),
+      panel.grid.major.y = element_line(color = "grey85", linewidth = 0.3),
+      panel.grid.minor.y = element_blank(),
+      plot.title = element_text(face = "bold", size = 14),
+      plot.subtitle = element_text(size = 11, margin = margin(b = 10)),
+      plot.caption = element_text(size = 8, color = "grey40", margin = margin(t = 10)),
+      axis.title.y = element_text(size = 10),
+      strip.text = element_text(face = "bold", size = 10, hjust = 0.5),
+      strip.background = element_blank(),
+      panel.spacing.y = unit(1.5, "lines"),
+      axis.text.x = element_text(angle = 0)
     )
 
 print(p)
@@ -362,7 +362,7 @@ print(p)
 # Save the plot
 if (!dir.exists("images")) dir.create("images")
 ggsave(
-    "images/arkk_iwv_factor_differences.svg",
+    "images/arkk_iwr_factor_differences.svg",
     plot = p,
     width = 12,
     height = 10,

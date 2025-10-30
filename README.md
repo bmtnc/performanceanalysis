@@ -58,7 +58,7 @@ return_data <- all_data %>%
   dplyr::mutate(return = log(adjusted_close / dplyr::lag(adjusted_close))) %>%
   dplyr::ungroup()
 ```
-We isolate the market benchmark (the $IWV Russell 3000 ETF) returns and join back so each row has both an asset return and `market_return`. Then, for each `ticker` group, we apply a sliding‐window OLS:
+We isolate the market benchmark returns and join back so each row has both an asset return and `market_return`. Then, for each `ticker` group, we apply a sliding‐window OLS:
 ```r
 linreg <- roll::roll_lm(
   x     = market_return,
@@ -71,9 +71,9 @@ beta  <-  linreg$coefficients[, "x1"]
 
 This yields time-series of rolling alpha and beta estimates for each ETF.
 
-## Rolling 3-Year Beta for USMV
+## Rolling Beta for ARKK
 
-![Rolling 3-Year Beta for USMV](images/usmv_beta.svg)
+![Rolling Beta for ARKK](images/arkk_beta.svg)
 
 ## Constrained Factor Regression for Return Decomposition
 
@@ -112,9 +112,9 @@ factor_decomposition <- regression_data %>%
 
 This produces time-varying factor weights that sum to 1 and are always non-negative, representing the evolving style composition of the target fund.
 
-## Rolling 3-Year Multi-Factor Decomposition of ARKK
+## Rolling Multi-Factor Decomposition of ARKK
 
-![Rolling 3-Year Multi-Factor Decomposition of ARKK](images/arkk_factor_decomposition.svg)
+![Rolling Multi-Factor Decomposition of ARKK](images/arkk_factor_decomposition.svg)
 
 The stacked area chart above shows how ARKK's factor exposures have evolved over time using our 8-factor model:
 - **Large Value** (IWD) and **Large Growth** (IWF) 
@@ -124,22 +124,22 @@ The stacked area chart above shows how ARKK's factor exposures have evolved over
 
 Each colored band represents the rolling 3-year weight that would be allocated to that factor to best approximate ARKK's return profile during that period.
 
-## Benchmark Comparison: ARKK vs IWV Factor Loading Differences
+## Benchmark Comparison: ARKK vs IWR Factor Loading Differences
 
-To understand how ARKK's factor exposures differ from the broad market, we perform **parallel constrained regressions** on both ARKK and IWV (the Russell 3000 benchmark) against the same 8-factor model. This reveals ARKK's active tilts relative to a passive market-cap weighted portfolio.
+To understand how ARKK's factor exposures differ from the Russell Midcap benchmark, we perform **parallel constrained regressions** on both ARKK and IWR (the Russell Midcap ETF) against the same 8-factor model. This reveals ARKK's active tilts relative to the midcap benchmark.
 
 ### Methodology
 
-1. **Dual Regression Setup**: Run identical rolling 3-year constrained regressions for both ARKK and IWV
-   - Target: ARKK returns or IWV returns
+1. **Dual Regression Setup**: Run identical rolling 1-year constrained regressions for both ARKK and IWR
+   - Target: ARKK returns or IWR returns
    - Factors: IWD, IWF, IWN, IWO, MTUM, USMV, QUAL, IJR
    - Constraints: Non-negative weights, sum to 1, plus intercept
 
 2. **Difference Calculation**: For each date and factor, compute:
    ```
-   Δβᵢ = β_ARKK,i - β_IWV,i
+   Δβᵢ = β_ARKK,i - β_IWR,i
    ```
-   Positive differences indicate ARKK overweights that factor relative to the market; negative values indicate underweights.
+   Positive differences indicate ARKK overweights that factor relative to the benchmark; negative values indicate underweights.
 
 3. **Materiality Filter**: For visualization clarity, we only display factors where `max(|Δβᵢ|) ≥ 5%` across the time series. **Note**: All 8 factors are used in both regressions regardless of their materiality for plotting.
 
@@ -148,19 +148,19 @@ To understand how ARKK's factor exposures differ from the broad market, we perfo
 ### Interpretation
 
 The bar charts show ARKK's active factor bets over time:
-- Bars above zero → ARKK overweight relative to IWV
-- Bars below zero → ARKK underweight relative to IWV
+- Bars above zero → ARKK overweight relative to IWR
+- Bars below zero → ARKK underweight relative to IWR
 - Extreme values (near ±100%) indicate concentrated single-factor allocations
 
-This analysis quantifies how ARKK's style has deviated from the broad market benchmark, particularly during volatile periods like the 2020 COVID crash.
+This analysis quantifies how ARKK's style has deviated from the Russell Midcap benchmark, particularly during volatile periods like the 2020 COVID crash.
 
-## ARKK vs IWV: Factor Loading Differences Over Time
+## ARKK vs IWR: Factor Loading Differences Over Time
 
-![ARKK vs IWV Factor Loading Differences](images/arkk_iwv_factor_differences.svg)
+![ARKK vs IWR Factor Loading Differences](images/arkk_iwr_factor_differences.svg)
 
 ## Cumulative Factor Attribution Analysis
 
-Building on the factor decomposition framework, we can treat the rolling factor weights as hypothetical portfolio allocations and perform **performance attribution** to decompose ARKK's total excess return (relative to IWV) into two sources:
+Building on the factor decomposition framework, we can treat the rolling factor weights as hypothetical portfolio allocations and perform **performance attribution** to decompose ARKK's total excess return (relative to IWR) into two sources:
 
 1. **Factor Contribution**: Return impact from factor tilts (over/underweighting factors relative to the benchmark)
 2. **Selection Effect**: Residual return from stock selection and interaction effects not explained by factor exposures
@@ -187,14 +187,14 @@ Standard multiplicative compounding would violate this identity. Carino's method
 
 ### Interpretation
 
-- **Cumulative Factor**: Value-add from ARKK's active factor positioning vs IWV
+- **Cumulative Factor**: Value-add from ARKK's active factor positioning vs IWR
 - **Cumulative Selection**: Value-add from ARKK's stock-specific choices and residual alpha
-- **Sum**: Total cumulative excess return (ARKK vs IWV)
+- **Sum**: Total cumulative excess return (ARKK vs IWR)
 
 Negative values indicate underperformance. The decomposition reveals whether poor performance stems from factor allocation decisions or security selection.
 
-## ARKK vs IWV: Cumulative Value-Add Attribution
+## ARKK vs IWR: Cumulative Value-Add Attribution
 
-![ARKK vs IWV Cumulative Attribution](images/arkk_iwv_cumulative_attribution.svg)
+![ARKK vs IWR Cumulative Attribution](images/arkk_iwr_cumulative_attribution.svg)
 
-The stacked area chart shows how ARKK's -35.5% cumulative underperformance (vs IWV) breaks down into factor tilts (-31.0%) and selection effects (-4.5%), with the black line tracking total excess return over time.
+The stacked area chart shows how ARKK's cumulative performance (vs IWR) breaks down into factor tilts and selection effects, with the black line tracking total excess return over time.

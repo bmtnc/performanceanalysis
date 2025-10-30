@@ -1,6 +1,6 @@
 # Script Params ----
 
-roll_window <- 756L # 3Y
+roll_window <- 252L
 
 tickers <- c(
     "ARKK", # ARK Innovation ETF (response variable)
@@ -10,8 +10,8 @@ tickers <- c(
     "IWO",  # R2000G
     "MTUM", # MSCI Momentum
     "USMV", # MSCI USA Min Vol
-    "QUAL", # MSCI USA Quality (FIXED: missing comma)
-    "IJR"   # Small Cap Quality
+    "QUAL" # MSCI USA Quality (FIXED: missing comma)
+    # "IJR"   # Small Cap Quality
 )
 
 # Data Pulls ----
@@ -46,7 +46,7 @@ regression_data <- arkk_returns %>%
 # Rolling Multi-Factor Constrained Regression - UPDATED ----
 
 # Updated factor columns to include new tickers
-factor_cols <- c("IWD", "IWF", "IWN", "IWO", "MTUM", "USMV", "QUAL", "IJR")
+factor_cols <- c("IWD", "IWF", "IWN", "IWO", "MTUM", "USMV", "QUAL")
 
 factor_decomposition <- regression_data %>%
     dplyr::arrange(date) %>%
@@ -66,8 +66,8 @@ factor_decomposition <- regression_data %>%
         small_growth = roll_res[[1]]$coefficients[, "IWO"],    # NEW
         momentum = roll_res[[1]]$coefficients[, "MTUM"],
         min_vol = roll_res[[1]]$coefficients[, "USMV"],
-        quality = roll_res[[1]]$coefficients[, "QUAL"],
-        small_quality = roll_res[[1]]$coefficients[, "IJR"]    # NEW
+        quality = roll_res[[1]]$coefficients[, "QUAL"]
+        # small_quality = roll_res[[1]]$coefficients[, "IJR"]    # NEW
     ) %>%
     dplyr::select(
         -roll_res,
@@ -87,7 +87,7 @@ library(scales)
 viz_data <- factor_decomposition %>%
     tidyr::pivot_longer(
         cols = c(large_value, large_growth, small_value, small_growth, 
-                momentum, min_vol, quality, small_quality),
+                momentum, min_vol, quality),
         names_to = "factor",
         values_to = "weight"
     ) %>%
@@ -100,13 +100,13 @@ viz_data <- factor_decomposition %>%
             factor == "momentum"      ~ "Momentum",
             factor == "min_vol"       ~ "Min Vol",
             factor == "quality"       ~ "Quality",
-            factor == "small_quality" ~ "Small Quality",    # NEW
+            # factor == "small_quality" ~ "Small Quality",    # NEW
             TRUE                      ~ factor
         ),
         # Updated factor order for consistent stacking
         factor = factor(factor, levels = c(
             "Large Value", "Large Growth", "Small Value", "Small Growth",
-            "Momentum", "Min Vol", "Quality", "Small Quality"
+            "Momentum", "Min Vol", "Quality"
         ))
     ) %>%
     dplyr::arrange(date, factor)
@@ -135,7 +135,7 @@ p <- viz_data %>%
         guide = guide_legend(reverse = TRUE)
     ) +
     labs(
-        title = "Rolling 3-Year Multi-Factor Decomposition of ARKK",
+        title = "Rolling 1-Year Multi-Factor Decomposition of ARKK",
         subtitle = "Constrained weights (non-negative, sum to 1) - 8 Factor Model",
         x = "", y = "Weight",
         caption = "Data: alphavantage • Chart: brrymtnc"

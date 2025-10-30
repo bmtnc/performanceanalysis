@@ -1,6 +1,6 @@
 # Script Params ----
 
-roll_window <- 756L # 3Y
+roll_window <- 252L
 
 tickers <- c(
     "IWV",  # Russell 3000 (target variable)
@@ -121,7 +121,7 @@ p_area <- viz_data %>%
         guide = guide_legend(reverse = TRUE)
     ) +
     labs(
-        title = "Rolling 3-Year Style & Size Decomposition of Russell 3000",
+        title = "Rolling 1-Year Style & Size Decomposition of Russell 3000",
         subtitle = "Constrained weights (non-negative, sum to 1) - 4 Factor Model",
         x = "", y = "Weight",
         caption = "Data: alphavantage • Chart: brrymtnc"

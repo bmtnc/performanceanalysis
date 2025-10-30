@@ -1,6 +1,6 @@
 # Script Params ----
 
-roll_window <- 756L # 3Y
+roll_window <- 252L
 
 # Factor tickers (unchanged)
 factor_tickers <- c(
@@ -149,7 +149,7 @@ p <- viz_data %>%
         guide = guide_legend(reverse = TRUE)
     ) +
     labs(
-        title = paste("Rolling 3-Year Multi-Factor Decomposition of", basket_name, "Basket"),
+        title = paste("Rolling 1-Year Multi-Factor Decomposition of", basket_name, "Basket"),
         subtitle = "Equal-weighted basket • Constrained weights (non-negative, sum to 1) - 8 Factor Model",
         x = "", y = "Weight",
         caption = "Data: alphavantage • Chart: brrymtnc"

@@ -1,9 +1,10 @@
 # Script Params ----
 
-roll_window <- 756L #3Y
+roll_window <- 252L
 
 tickers <- c(
-  "IWB", #R1000
+  "ARKK", #ARK Innovation ETF
+  "IWR", #Russell Midcap
   "IWD", #R1000V
   "IWF", #R1000G
   "IWM", #R2000
@@ -33,7 +34,7 @@ all_data <- all_data %>%
 return_data <- calculate_log_returns(all_data)
 
 market_returns <- return_data %>%
-  dplyr::filter(ticker == "IWB") %>%
+  dplyr::filter(ticker == "IWR") %>%
   dplyr::select(date, market_return = return)
 
 return_data <- return_data %>%
@@ -71,7 +72,7 @@ library(ggrepel)
 library(scales)
 
 p <- simple_regression %>%
-  dplyr::filter(ticker == "USMV") %>%
+  dplyr::filter(ticker == "ARKK") %>%
   ggplot(aes(x = date, y = beta)) +
   geom_line(color = "steelblue", size = 1) +
   geom_point(data = . %>% tail(1), color = "steelblue", size = 2) +
@@ -88,13 +89,13 @@ p <- simple_regression %>%
     date_breaks = "1 year",
     date_labels = "%Y"
   ) +
-    scale_y_continuous(
-    limits = c(0.5, 1),
-    breaks = seq(0.5, 1, by = 0.1)
-  ) +
-  labs(
-    title    = "Rolling 3-Year Beta for $USMV",
-    subtitle = "vs. Russell 1000 Index ($IWB)",
+scale_y_continuous(
+    limits = c(0.8, 2.25),
+    breaks = seq(0.5, 2.25, by = 0.25)
+  ) + 
+labs(
+    title    = "Rolling Beta for $ARKK",
+    subtitle = "vs. Russell Midcap Index ($IWR)",
     x        = "",
     y        = "Beta",
     caption  = "Data: alphavantage • Chart: brrymtnc"
@@ -112,4 +113,6 @@ p <- simple_regression %>%
   )
 
 if (!dir.exists("images")) dir.create("images")
-ggsave("images/usmv_beta.svg", plot = p, width = 8, height = 5, dpi = 320)
+ggsave("images/arkk_beta.svg", plot = p, width = 8, height = 5, dpi = 320)
+
+print(p)
