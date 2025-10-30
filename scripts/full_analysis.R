@@ -4,10 +4,15 @@
 # Script Params ----
 
 # CONFIGURE TICKERS HERE
-target_ticker <- "PSLDX"
+target_ticker <- "SEQUX"
 benchmark_ticker <- "SPY"
 
 roll_window <- 252L
+save_images <- FALSE
+
+# Date range filtering (set to NULL to use all available data)
+start_date <- NULL  # e.g., "2020-01-01"
+end_date <- NULL    # e.g., "2024-12-31"
 
 # Complete ticker list (union of all scripts)
 tickers <- c(
@@ -15,7 +20,6 @@ tickers <- c(
   benchmark_ticker, # Benchmark
   "IWD",            # R1000V
   "IWF",            # R1000G
-  "IWM",            # R2000 (only used in starter)
   "IWN",            # R2000V
   "IWO",            # R2000G
   "MTUM",           # MSCI Momentum
@@ -54,13 +58,27 @@ all_data <- all_data %>%
 
 return_data <- calculate_log_returns(all_data)
 
+# Apply date filtering if specified
+if (!is.null(start_date) || !is.null(end_date)) {
+  if (!is.null(start_date)) {
+    start_date_parsed <- lubridate::ymd(start_date)
+    return_data <- return_data %>% dplyr::filter(date >= start_date_parsed)
+    message(paste0("Filtering data: start_date >= ", start_date))
+  }
+  if (!is.null(end_date)) {
+    end_date_parsed <- lubridate::ymd(end_date)
+    return_data <- return_data %>% dplyr::filter(date <= end_date_parsed)
+    message(paste0("Filtering data: end_date <= ", end_date))
+  }
+}
+
 # Load visualization libraries
 library(ggplot2)
 library(ggrepel)
 library(scales)
 
 # Create images directory if needed
-if (!dir.exists("images")) dir.create("images")
+if (save_images && !dir.exists("images")) dir.create("images")
 
 # ============================================================================
 # ANALYSIS 1: ROLLING BETA
@@ -116,10 +134,7 @@ p1 <- simple_regression %>%
     date_breaks = "1 year",
     date_labels = "%Y"
   ) +
-  scale_y_continuous(
-    limits = c(0.8, 2.25),
-    breaks = seq(0.5, 2.25, by = 0.25)
-  ) + 
+  scale_y_continuous() +
   labs(
     title = paste0("Rolling Beta for $", target_ticker),
     subtitle = paste0("vs. ", benchmark_ticker),
@@ -140,9 +155,11 @@ p1 <- simple_regression %>%
   )
 
 beta_file <- paste0("images/", target_lower, "_beta.svg")
-ggsave(beta_file, plot = p1, width = 8, height = 5, dpi = 320)
+if (save_images) {
+  ggsave(beta_file, plot = p1, width = 8, height = 5, dpi = 320)
+  message(paste0("✓ Beta chart saved to ", beta_file))
+}
 print(p1)
-message(paste0("✓ Beta chart saved to ", beta_file))
 
 # ============================================================================
 # ANALYSIS 2: FACTOR DECOMPOSITION (target only)
@@ -267,9 +284,11 @@ p2 <- viz_data_decomp %>%
   )
 
 decomp_file <- paste0("images/", target_lower, "_factor_decomposition.svg")
-ggsave(decomp_file, plot = p2, width = 12, height = 6, dpi = 320)
+if (save_images) {
+  ggsave(decomp_file, plot = p2, width = 12, height = 6, dpi = 320)
+  message(paste0("✓ Factor decomposition chart saved to ", decomp_file))
+}
 print(p2)
-message(paste0("✓ Factor decomposition chart saved to ", decomp_file))
 
 # ============================================================================
 # ANALYSIS 3: BENCHMARK COMPARISON (Factor Differences)
@@ -502,9 +521,11 @@ p3 <- viz_data_diff %>%
   )
 
 diff_file <- paste0("images/", target_lower, "_", benchmark_lower, "_factor_differences.svg")
-ggsave(diff_file, plot = p3, width = 12, height = 10, dpi = 320)
+if (save_images) {
+  ggsave(diff_file, plot = p3, width = 12, height = 10, dpi = 320)
+  message(paste0("✓ Factor differences chart saved to ", diff_file))
+}
 print(p3)
-message(paste0("✓ Factor differences chart saved to ", diff_file))
 
 # ============================================================================
 # ANALYSIS 4: FACTOR ATTRIBUTION
@@ -696,9 +717,11 @@ p4 <- viz_cumulative %>%
   )
 
 attr_file <- paste0("images/", target_lower, "_", benchmark_lower, "_cumulative_attribution.svg")
-ggsave(attr_file, plot = p4, width = 12, height = 7, dpi = 320)
+if (save_images) {
+  ggsave(attr_file, plot = p4, width = 12, height = 7, dpi = 320)
+  message(paste0("✓ Cumulative attribution chart saved to ", attr_file))
+}
 print(p4)
-message(paste0("✓ Cumulative attribution chart saved to ", attr_file))
 
 # ============================================================================
 # SUMMARY
@@ -707,9 +730,11 @@ message(paste0("✓ Cumulative attribution chart saved to ", attr_file))
 message("\n========================================")
 message("ANALYSIS COMPLETE!")
 message("========================================")
-message("\nGenerated 4 visualizations:")
-message(paste0("  1. ", beta_file))
-message(paste0("  2. ", decomp_file))
-message(paste0("  3. ", diff_file))
-message(paste0("  4. ", attr_file))
+if (save_images) {
+  message("\nGenerated 4 visualizations:")
+  message(paste0("  1. ", beta_file))
+  message(paste0("  2. ", decomp_file))
+  message(paste0("  3. ", diff_file))
+  message(paste0("  4. ", attr_file))
+}
 message("\n========================================\n")
