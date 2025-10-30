@@ -1,25 +1,33 @@
-# ARKK Full Analysis Pipeline
+# Full Analysis Pipeline
 # Combines: Beta Analysis, Factor Decomposition, Benchmark Comparison, and Attribution Analysis
 
 # Script Params ----
+
+# CONFIGURE TICKERS HERE
+target_ticker <- "PSLDX"
+benchmark_ticker <- "SPY"
 
 roll_window <- 252L
 
 # Complete ticker list (union of all scripts)
 tickers <- c(
-  "ARKK", # ARK Innovation ETF (target)
-  "IWR",  # iShares Russell Midcap ETF (benchmark)
-  "IWD",  # R1000V
-  "IWF",  # R1000G
-  "IWM",  # R2000 (only used in starter)
-  "IWN",  # R2000V
-  "IWO",  # R2000G
-  "MTUM", # MSCI Momentum
-  "USMV", # MSCI USA Min Vol
-  "QUAL"  # MSCI USA Quality
+  target_ticker,    # Target fund
+  benchmark_ticker, # Benchmark
+  "IWD",            # R1000V
+  "IWF",            # R1000G
+  "IWM",            # R2000 (only used in starter)
+  "IWN",            # R2000V
+  "IWO",            # R2000G
+  "MTUM",           # MSCI Momentum
+  "USMV",           # MSCI USA Min Vol
+  "QUAL"            # MSCI USA Quality
 )
 
 factor_cols <- c("IWD", "IWF", "IWN", "IWO", "MTUM", "USMV", "QUAL")
+
+# Generate lowercase versions for file naming
+target_lower <- tolower(target_ticker)
+benchmark_lower <- tolower(benchmark_ticker)
 
 # Load package functions
 devtools::load_all()
@@ -55,7 +63,7 @@ library(scales)
 if (!dir.exists("images")) dir.create("images")
 
 # ============================================================================
-# ANALYSIS 1: ROLLING BETA (ARKK vs IWR)
+# ANALYSIS 1: ROLLING BETA
 # ============================================================================
 
 message("\n========================================")
@@ -63,7 +71,7 @@ message("ANALYSIS 1: ROLLING BETA")
 message("========================================")
 
 market_returns <- return_data %>%
-  dplyr::filter(ticker == "IWR") %>%
+  dplyr::filter(ticker == benchmark_ticker) %>%
   dplyr::select(date, market_return = return)
 
 return_data_with_market <- return_data %>%
@@ -92,7 +100,7 @@ simple_regression <- return_data_with_market %>%
 
 # Visualization 1: Beta Chart
 p1 <- simple_regression %>%
-  dplyr::filter(ticker == "ARKK") %>%
+  dplyr::filter(ticker == target_ticker) %>%
   ggplot(aes(x = date, y = beta)) +
   geom_line(color = "steelblue", size = 1) +
   geom_point(data = . %>% tail(1), color = "steelblue", size = 2) +
@@ -113,8 +121,8 @@ p1 <- simple_regression %>%
     breaks = seq(0.5, 2.25, by = 0.25)
   ) + 
   labs(
-    title = "Rolling Beta for $ARKK",
-    subtitle = "vs. Russell Midcap Index ($IWR)",
+    title = paste0("Rolling Beta for $", target_ticker),
+    subtitle = paste0("vs. ", benchmark_ticker),
     x = "",
     y = "Beta",
     caption = "Data: alphavantage • Chart: brrymtnc"
@@ -131,41 +139,42 @@ p1 <- simple_regression %>%
     plot.caption = element_text(size = 8, color = "grey40")
   )
 
-ggsave("images/arkk_beta.svg", plot = p1, width = 8, height = 5, dpi = 320)
+beta_file <- paste0("images/", target_lower, "_beta.svg")
+ggsave(beta_file, plot = p1, width = 8, height = 5, dpi = 320)
 print(p1)
-message("✓ Beta chart saved to images/arkk_beta.svg")
+message(paste0("✓ Beta chart saved to ", beta_file))
 
 # ============================================================================
-# ANALYSIS 2: FACTOR DECOMPOSITION (ARKK only)
+# ANALYSIS 2: FACTOR DECOMPOSITION (target only)
 # ============================================================================
 
 message("\n========================================")
 message("ANALYSIS 2: FACTOR DECOMPOSITION")
 message("========================================")
 
-# Prepare data for ARKK-only analysis
-factor_returns_arkk <- return_data %>%
-  dplyr::filter(ticker != "ARKK", ticker != "IWM") %>%
+# Prepare data for target-only analysis
+factor_returns_target <- return_data %>%
+  dplyr::filter(ticker != target_ticker, ticker != "IWM") %>%
   dplyr::select(date, ticker, return) %>%
   tidyr::pivot_wider(names_from = ticker, values_from = return)
 
-arkk_returns_only <- return_data %>%
-  dplyr::filter(ticker == "ARKK") %>%
-  dplyr::select(date, arkk_return = return)
+target_returns_only <- return_data %>%
+  dplyr::filter(ticker == target_ticker) %>%
+  dplyr::select(date, target_return = return)
 
-regression_data_arkk <- arkk_returns_only %>%
-  dplyr::left_join(factor_returns_arkk, by = "date") %>%
+regression_data_target <- target_returns_only %>%
+  dplyr::left_join(factor_returns_target, by = "date") %>%
   dplyr::filter(complete.cases(.))
 
 # Rolling Multi-Factor Constrained Regression
-message("Running ARKK factor decomposition...")
+message(paste0("Running ", target_ticker, " factor decomposition..."))
 
-factor_decomposition <- regression_data_arkk %>%
+factor_decomposition <- regression_data_target %>%
   dplyr::arrange(date) %>%
   dplyr::mutate(
     roll_res = list(roll_constrained_lm(
       x = as.matrix(dplyr::select(., dplyr::all_of(factor_cols))),
-      y = arkk_return,
+      y = target_return,
       width = roll_window,
       non_negative = TRUE,
       sum_to_one = TRUE,
@@ -182,7 +191,7 @@ factor_decomposition <- regression_data_arkk %>%
   ) %>%
   dplyr::select(
     -roll_res,
-    -arkk_return,
+    -target_return,
     -dplyr::all_of(factor_cols)
   ) %>%
   dplyr::filter(!is.na(alpha))
@@ -237,7 +246,7 @@ p2 <- viz_data_decomp %>%
     guide = guide_legend(reverse = TRUE)
   ) +
   labs(
-    title = "Rolling 1-Year Multi-Factor Decomposition of ARKK",
+    title = paste0("Rolling 1-Year Multi-Factor Decomposition of ", target_ticker),
     subtitle = "Constrained weights (non-negative, sum to 1) - 7 Factor Model",
     x = "", y = "Weight",
     caption = "Data: alphavantage • Chart: brrymtnc"
@@ -257,51 +266,52 @@ p2 <- viz_data_decomp %>%
     axis.text.x = element_text(angle = 0)
   )
 
-ggsave("images/arkk_factor_decomposition.svg", plot = p2, width = 12, height = 6, dpi = 320)
+decomp_file <- paste0("images/", target_lower, "_factor_decomposition.svg")
+ggsave(decomp_file, plot = p2, width = 12, height = 6, dpi = 320)
 print(p2)
-message("✓ Factor decomposition chart saved to images/arkk_factor_decomposition.svg")
+message(paste0("✓ Factor decomposition chart saved to ", decomp_file))
 
 # ============================================================================
-# ANALYSIS 3: BENCHMARK COMPARISON (ARKK vs IWR Factor Differences)
+# ANALYSIS 3: BENCHMARK COMPARISON (Factor Differences)
 # ============================================================================
 
 message("\n========================================")
 message("ANALYSIS 3: BENCHMARK COMPARISON")
 message("========================================")
 
-# Prepare factor returns (exclude both ARKK and IWR)
+# Prepare factor returns (exclude both target and benchmark)
 factor_returns <- return_data %>%
-  dplyr::filter(!ticker %in% c("ARKK", "IWR", "IWM")) %>%
+  dplyr::filter(!ticker %in% c(target_ticker, benchmark_ticker, "IWM")) %>%
   dplyr::select(date, ticker, return) %>%
   tidyr::pivot_wider(names_from = ticker, values_from = return)
 
-# Prepare ARKK and IWR returns
-arkk_returns <- return_data %>%
-  dplyr::filter(ticker == "ARKK") %>%
-  dplyr::select(date, arkk_return = return)
+# Prepare target and benchmark returns
+target_returns <- return_data %>%
+  dplyr::filter(ticker == target_ticker) %>%
+  dplyr::select(date, target_return = return)
 
-iwr_returns <- return_data %>%
-  dplyr::filter(ticker == "IWR") %>%
-  dplyr::select(date, iwr_return = return)
+benchmark_returns <- return_data %>%
+  dplyr::filter(ticker == benchmark_ticker) %>%
+  dplyr::select(date, benchmark_return = return)
 
 # Create regression datasets
-arkk_regression_data <- arkk_returns %>%
+target_regression_data <- target_returns %>%
   dplyr::left_join(factor_returns, by = "date") %>%
   dplyr::filter(complete.cases(.))
 
-iwr_regression_data <- iwr_returns %>%
+benchmark_regression_data <- benchmark_returns %>%
   dplyr::left_join(factor_returns, by = "date") %>%
   dplyr::filter(complete.cases(.))
 
-# Rolling Multi-Factor Constrained Regression - ARKK
-message("Running ARKK constrained regression (with intercept)...")
+# Rolling Multi-Factor Constrained Regression - Target
+message(paste0("Running ", target_ticker, " constrained regression (with intercept)..."))
 
-arkk_decomposition <- arkk_regression_data %>%
+target_decomposition <- target_regression_data %>%
   dplyr::arrange(date) %>%
   dplyr::mutate(
     roll_res = list(roll_constrained_lm(
       x = as.matrix(dplyr::select(., dplyr::all_of(factor_cols))),
-      y = arkk_return,
+      y = target_return,
       width = roll_window,
       non_negative = TRUE,
       sum_to_one = TRUE,
@@ -322,15 +332,15 @@ arkk_decomposition <- arkk_regression_data %>%
   ) %>%
   dplyr::filter(!is.na(alpha))
 
-# Rolling Multi-Factor Constrained Regression - IWR
-message("Running IWR constrained regression (with intercept)...")
+# Rolling Multi-Factor Constrained Regression - Benchmark
+message(paste0("Running ", benchmark_ticker, " constrained regression (with intercept)..."))
 
-iwr_decomposition <- iwr_regression_data %>%
+benchmark_decomposition <- benchmark_regression_data %>%
   dplyr::arrange(date) %>%
   dplyr::mutate(
     roll_res = list(roll_constrained_lm(
       x = as.matrix(dplyr::select(., dplyr::all_of(factor_cols))),
-      y = iwr_return,
+      y = benchmark_return,
       width = roll_window,
       non_negative = TRUE,
       sum_to_one = TRUE,
@@ -352,21 +362,21 @@ iwr_decomposition <- iwr_regression_data %>%
   dplyr::filter(!is.na(alpha))
 
 # Calculate Differences
-factor_differences <- arkk_decomposition %>%
+factor_differences <- target_decomposition %>%
   dplyr::inner_join(
-    iwr_decomposition,
+    benchmark_decomposition,
     by = "date",
-    suffix = c("_arkk", "_iwr")
+    suffix = c("_target", "_benchmark")
   ) %>%
   dplyr::mutate(
-    large_value_diff = large_value_arkk - large_value_iwr,
-    large_growth_diff = large_growth_arkk - large_growth_iwr,
-    small_value_diff = small_value_arkk - small_value_iwr,
-    small_growth_diff = small_growth_arkk - small_growth_iwr,
-    momentum_diff = momentum_arkk - momentum_iwr,
-    min_vol_diff = min_vol_arkk - min_vol_iwr,
-    quality_diff = quality_arkk - quality_iwr,
-    alpha_diff = alpha_arkk - alpha_iwr
+    large_value_diff = large_value_target - large_value_benchmark,
+    large_growth_diff = large_growth_target - large_growth_benchmark,
+    small_value_diff = small_value_target - small_value_benchmark,
+    small_growth_diff = small_growth_target - small_growth_benchmark,
+    momentum_diff = momentum_target - momentum_benchmark,
+    min_vol_diff = min_vol_target - min_vol_benchmark,
+    quality_diff = quality_target - quality_benchmark,
+    alpha_diff = alpha_target - alpha_benchmark
   ) %>%
   dplyr::select(
     date, large_value_diff, large_growth_diff, small_value_diff,
@@ -469,8 +479,8 @@ p3 <- viz_data_diff %>%
     guide = "none"
   ) +
   labs(
-    title = "ARKK vs Russell Midcap Index: Factor Loading Differences Over Time",
-    subtitle = "Rolling 1-year constrained regression (ARKK loading - RMid loading)",
+    title = paste0(target_ticker, " vs ", benchmark_ticker, ": Factor Loading Differences Over Time"),
+    subtitle = paste0("Rolling 1-year constrained regression (", target_ticker, " loading - ", benchmark_ticker, " loading)"),
     x = "",
     y = "Loading Difference",
     caption = "Data: alphavantage • Chart: brrymtnc"
@@ -491,9 +501,10 @@ p3 <- viz_data_diff %>%
     axis.text.x = element_text(angle = 0)
   )
 
-ggsave("images/arkk_iwr_factor_differences.svg", plot = p3, width = 12, height = 10, dpi = 320)
+diff_file <- paste0("images/", target_lower, "_", benchmark_lower, "_factor_differences.svg")
+ggsave(diff_file, plot = p3, width = 12, height = 10, dpi = 320)
 print(p3)
-message("✓ Factor differences chart saved to images/arkk_iwr_factor_differences.svg")
+message(paste0("✓ Factor differences chart saved to ", diff_file))
 
 # ============================================================================
 # ANALYSIS 4: FACTOR ATTRIBUTION
@@ -504,14 +515,14 @@ message("ANALYSIS 4: FACTOR ATTRIBUTION")
 message("========================================")
 
 # Run constrained regressions WITHOUT intercept for attribution
-message("Running ARKK constrained regression (no intercept)...")
+message(paste0("Running ", target_ticker, " constrained regression (no intercept)..."))
 
-arkk_weights <- arkk_regression_data %>%
+target_weights <- target_regression_data %>%
   dplyr::arrange(date) %>%
   dplyr::mutate(
     roll_res = list(roll_constrained_lm(
       x = as.matrix(dplyr::select(., dplyr::all_of(factor_cols))),
-      y = arkk_return,
+      y = target_return,
       width = roll_window,
       non_negative = TRUE,
       sum_to_one = TRUE,
@@ -528,14 +539,14 @@ arkk_weights <- arkk_regression_data %>%
   dplyr::select(date, IWD, IWF, IWN, IWO, MTUM, USMV, QUAL) %>%
   dplyr::filter(!is.na(IWD))
 
-message("Running IWR constrained regression (no intercept)...")
+message(paste0("Running ", benchmark_ticker, " constrained regression (no intercept)..."))
 
-iwr_weights <- iwr_regression_data %>%
+benchmark_weights <- benchmark_regression_data %>%
   dplyr::arrange(date) %>%
   dplyr::mutate(
     roll_res = list(roll_constrained_lm(
       x = as.matrix(dplyr::select(., dplyr::all_of(factor_cols))),
-      y = iwr_return,
+      y = benchmark_return,
       width = roll_window,
       non_negative = TRUE,
       sum_to_one = TRUE,
@@ -552,24 +563,24 @@ iwr_weights <- iwr_regression_data %>%
   dplyr::select(date, IWD, IWF, IWN, IWO, MTUM, USMV, QUAL) %>%
   dplyr::filter(!is.na(IWD))
 
-# Prepare returns for attribution (need to rename columns)
-arkk_returns_attr <- return_data %>%
-  dplyr::filter(ticker == "ARKK") %>%
+# Prepare returns for attribution
+target_returns_attr <- return_data %>%
+  dplyr::filter(ticker == target_ticker) %>%
   dplyr::select(date, return)
 
-iwr_returns_attr <- return_data %>%
-  dplyr::filter(ticker == "IWR") %>%
+benchmark_returns_attr <- return_data %>%
+  dplyr::filter(ticker == benchmark_ticker) %>%
   dplyr::select(date, return)
 
 # Calculate Daily Attribution
 message("Calculating factor attribution...")
 
 daily_attribution <- calculate_factor_attribution(
-  target_weights = arkk_weights,
-  benchmark_weights = iwr_weights,
+  target_weights = target_weights,
+  benchmark_weights = benchmark_weights,
   factor_returns = factor_returns,
-  target_returns = arkk_returns_attr,
-  benchmark_returns = iwr_returns_attr,
+  target_returns = target_returns_attr,
+  benchmark_returns = benchmark_returns_attr,
   factor_cols = factor_cols
 )
 
@@ -667,7 +678,7 @@ p4 <- viz_cumulative %>%
     )
   ) +
   labs(
-    title = "ARKK vs Russell Midcap Index: Cumulative Value-Add Attribution",
+    title = paste0(target_ticker, " vs ", benchmark_ticker, ": Cumulative Value-Add Attribution"),
     subtitle = "Decomposing excess returns into factor tilts vs stock selection (rolling 1-year)",
     x = "",
     y = "Cumulative Value-Add",
@@ -684,9 +695,10 @@ p4 <- viz_cumulative %>%
     legend.position = "bottom"
   )
 
-ggsave("images/arkk_iwr_cumulative_attribution.svg", plot = p4, width = 12, height = 7, dpi = 320)
+attr_file <- paste0("images/", target_lower, "_", benchmark_lower, "_cumulative_attribution.svg")
+ggsave(attr_file, plot = p4, width = 12, height = 7, dpi = 320)
 print(p4)
-message("✓ Cumulative attribution chart saved to images/arkk_iwr_cumulative_attribution.svg")
+message(paste0("✓ Cumulative attribution chart saved to ", attr_file))
 
 # ============================================================================
 # SUMMARY
@@ -696,8 +708,8 @@ message("\n========================================")
 message("ANALYSIS COMPLETE!")
 message("========================================")
 message("\nGenerated 4 visualizations:")
-message("  1. images/arkk_beta.svg")
-message("  2. images/arkk_factor_decomposition.svg")
-message("  3. images/arkk_iwr_factor_differences.svg")
-message("  4. images/arkk_iwr_cumulative_attribution.svg")
+message(paste0("  1. ", beta_file))
+message(paste0("  2. ", decomp_file))
+message(paste0("  3. ", diff_file))
+message(paste0("  4. ", attr_file))
 message("\n========================================\n")
