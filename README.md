@@ -162,8 +162,8 @@ This analysis quantifies how ARKK's style has deviated from the Russell Midcap b
 
 Building on the factor decomposition framework, we can treat the rolling factor weights as hypothetical portfolio allocations and perform **performance attribution** to decompose ARKK's total excess return (relative to IWR) into two sources:
 
-1. **Factor Contribution**: Return impact from factor tilts (over/underweighting factors relative to the benchmark)
-2. **Selection Effect**: Residual return from stock selection and interaction effects not explained by factor exposures
+1. **Factor Tilt Effects**: Return impact from factor tilts (over/underweighting factors relative to the benchmark)
+2. **Idiosyncratic Effects**: Residual return from stock selection and interaction effects not explained by factor exposures
 
 ### Methodology
 
@@ -180,15 +180,15 @@ where expected returns = Σ(β_i × r_factor_i) using weights from *t-1*.
 
 **Carino Linking**: Converts daily attribution into cumulative metrics using logarithmic weighting to maintain the additive identity:
 ```
-cumulative_factor + cumulative_selection = cumulative_excess
+cumulative_factor_tilt + cumulative_idiosyncratic = cumulative_excess
 ```
 
 Standard multiplicative compounding would violate this identity. Carino's method (industry standard for GIPS-compliant attribution) allocates the total compounded excess return proportionally based on log-weighted daily contributions.
 
 ### Interpretation
 
-- **Cumulative Factor**: Value-add from ARKK's active factor positioning vs IWR
-- **Cumulative Selection**: Value-add from ARKK's stock-specific choices and residual alpha
+- **Cumulative Factor Tilt Effects**: Value-add from ARKK's active factor positioning vs IWR
+- **Cumulative Idiosyncratic Effects**: Value-add from ARKK's stock-specific choices and residual alpha
 - **Sum**: Total cumulative excess return (ARKK vs IWR)
 
 Negative values indicate underperformance. The decomposition reveals whether poor performance stems from factor allocation decisions or security selection.
@@ -197,4 +197,4 @@ Negative values indicate underperformance. The decomposition reveals whether poo
 
 ![ARKK vs IWR Cumulative Attribution](images/arkk_iwr_cumulative_attribution.svg)
 
-The stacked area chart shows how ARKK's cumulative performance (vs IWR) breaks down into factor tilts and selection effects, with the black line tracking total excess return over time.
+The stacked area chart shows how ARKK's cumulative performance (vs IWR) breaks down into factor tilt effects and idiosyncratic effects, with the black line tracking total excess return over time.

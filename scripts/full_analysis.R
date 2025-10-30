@@ -4,14 +4,14 @@
 # Script Params ----
 
 # CONFIGURE TICKERS HERE
-target_ticker <- "SEQUX"
-benchmark_ticker <- "SPY"
+target_ticker <- "ARKK"
+benchmark_ticker <- "IWR"
 
 roll_window <- 252L
-save_images <- FALSE
+save_images <- TRUE
 
 # Date range filtering (set to NULL to use all available data)
-start_date <- NULL  # e.g., "2020-01-01"
+start_date <- "2016-01-01"  # e.g., "2020-01-01"
 end_date <- NULL    # e.g., "2024-12-31"
 
 # Complete ticker list (union of all scripts)
@@ -22,9 +22,9 @@ tickers <- c(
   "IWF",            # R1000G
   "IWN",            # R2000V
   "IWO",            # R2000G
-  "MTUM",           # MSCI Momentum
-  "USMV",           # MSCI USA Min Vol
-  "QUAL"            # MSCI USA Quality
+  "MTUM",           # Momo
+  "USMV",           # MinVol
+  "QUAL"            # Quality
 )
 
 factor_cols <- c("IWD", "IWF", "IWN", "IWO", "MTUM", "USMV", "QUAL")
@@ -647,8 +647,8 @@ viz_cumulative <- cumulative_attribution %>%
   ) %>%
   dplyr::mutate(
     component = dplyr::case_when(
-      component == "cumulative_factor" ~ "Factor Contribution",
-      component == "cumulative_selection" ~ "Selection Effect",
+      component == "cumulative_factor" ~ "Factor Tilt Effects",
+      component == "cumulative_selection" ~ "Idiosyncratic Effects",
       TRUE ~ component
     )
   )
@@ -694,13 +694,13 @@ p4 <- viz_cumulative %>%
   ) +
   scale_fill_manual(
     values = c(
-      "Factor Contribution" = "#4575b4",
-      "Selection Effect" = "#d73027"
+      "Factor Tilt Effects" = "#4575b4",
+      "Idiosyncratic Effects" = "#d73027"
     )
   ) +
   labs(
     title = paste0(target_ticker, " vs ", benchmark_ticker, ": Cumulative Value-Add Attribution"),
-    subtitle = "Decomposing excess returns into factor tilts vs stock selection (rolling 1-year)",
+    subtitle = "Decomposing excess returns into factor tilt effects vs idiosyncratic effects (rolling 1-year)",
     x = "",
     y = "Cumulative Value-Add",
     fill = "",
