@@ -3,7 +3,9 @@
 .Rdata
 .httr-oauth
 .DS_Store
+.Renviron
 .quarto
 .clinerules
 /memory-bank
 /docs
+/data
