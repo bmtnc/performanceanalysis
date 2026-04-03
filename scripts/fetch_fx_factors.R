@@ -14,18 +14,20 @@ obs_end   <- Sys.Date()
 # G10 currencies (all vs USD)
 currencies <- c("AUD", "CAD", "CHF", "EUR", "GBP", "JPY", "NOK", "NZD", "SEK")
 
-# FRED monthly exchange rate series (H.10 release, monthly averages)
+# FIX 1: Daily FRED exchange rate series (H.10 release, DEX prefix)
+# Using daily series and taking last business day of each month eliminates
+# artificial smoothing and half-month timing lag from monthly averages.
 # Convention: some are "USD per foreign" (direct), some are "foreign per USD" (indirect)
 fx_series <- c(
-  AUD = "EXUSAL",   # USD per AUD  (direct)
-  CAD = "EXCAUS",   # CAD per USD  (indirect)
-  CHF = "EXSZUS",   # CHF per USD  (indirect)
-  EUR = "EXUSEU",   # USD per EUR  (direct)
-  GBP = "EXUSUK",   # USD per GBP  (direct)
-  JPY = "EXJPUS",   # JPY per USD  (indirect)
-  NOK = "EXNOUS",   # NOK per USD  (indirect)
-  NZD = "EXUSNZ",   # USD per NZD  (direct)
-  SEK = "EXSDUS"    # SEK per USD  (indirect)
+  AUD = "DEXUSAL",   # USD per AUD  (direct)
+  CAD = "DEXCAUS",   # CAD per USD  (indirect)
+  CHF = "DEXSZUS",   # CHF per USD  (indirect)
+  EUR = "DEXUSEU",   # USD per EUR  (direct)
+  GBP = "DEXUSUK",   # USD per GBP  (direct)
+  JPY = "DEXJPUS",   # JPY per USD  (indirect)
+  NOK = "DEXNOUS",   # NOK per USD  (indirect)
+  NZD = "DEXUSNZ",   # USD per NZD  (direct)
+  SEK = "DEXSDUS"    # SEK per USD  (indirect)
 )
 
 # Currencies quoted as "USD per foreign" -- these need inverting to get
@@ -50,17 +52,21 @@ rate_series <- c(
 # Japan splice series: CD rate has longer history (1979-2022)
 jpy_cd_series <- "IR3TCD01JPM156N"
 
-# CPI indices (OECD via FRED, index levels, not seasonally adjusted)
-# AU, NZ are quarterly-only on FRED; EUR uses Eurostat series
+# FIX 2: CPI index-level series (OECD via FRED, 2015=100 base)
+# Must be INDEX LEVELS (values ~50-150), NOT month-over-month percentage changes.
+# Previous CPALTT01xxM657N series were percentage changes -- taking log() of
+# percentage changes produced nonsensical values.
+# Using xxCPIALLMINMEI pattern (verified index-level, monthly, not seasonally adj).
+# AU, NZ are quarterly-only on FRED; EUR uses Eurostat series.
 cpi_series <- c(
-  USD = "CPALTT01USM657N",
-  CAD = "CPALTT01CAM657N",
-  CHF = "CPALTT01CHM657N",
-  EUR = "CP0000EZ19M086NEST",
-  GBP = "CPALTT01GBM657N",
-  JPY = "CPALTT01JPM657N",
-  NOK = "CPALTT01NOM657N",
-  SEK = "CPALTT01SEM657N"
+  USD = "USACPIALLMINMEI",    # CPI: All Items for US, Index 2015=100
+  CAD = "CANCPIALLMINMEI",    # CPI: All Items for Canada, Index 2015=100
+  CHF = "CHECPIALLMINMEI",    # CPI: All Items for Switzerland, Index 2015=100
+  EUR = "CP0000EZ19M086NEST", # Eurostat HICP for Euro Area, Index 2015=100
+  GBP = "GBRCPIALLMINMEI",    # CPI: All Items for UK, Index 2015=100
+  JPY = "JPNCPIALLMINMEI",    # CPI: All Items for Japan, Index 2015=100
+  NOK = "NORCPIALLMINMEI",    # CPI: All Items for Norway, Index 2015=100
+  SEK = "SWECPIALLMINMEI"     # CPI: All Items for Sweden, Index 2015=100
 )
 
 # Quarterly CPI series (AU and NZ only have quarterly on FRED)
@@ -70,9 +76,21 @@ cpi_quarterly_series <- c(
   NZD = "NZLCPIALLQINMEI"
 )
 
-# Portfolio construction
-n_long  <- 3  # top tercile
-n_short <- 3  # bottom tercile
+# OECD PPP exchange rate API (free, no key needed)
+# Annual PPP rates for GDP, used for FX value signal
+oecd_ppp_url <- paste0(
+  "https://sdmx.oecd.org/public/rest/data/",
+  "OECD.SDD.NAD,DSD_NAMAIN10@DF_TABLE4,/",
+  "A.AUS+CAN+CHE+EA20+GBR+JPN+NOR+NZL+SWE",
+  ".S1.S1.PPP_B1GQ+EXC_E.F21._Z._Z.XDC_USD._Z.N.T001",
+  "?startPeriod=1960&endPeriod=2025"
+)
+
+# OECD country code -> currency mapping
+oecd_to_currency <- c(
+  AUS = "AUD", CAN = "CAD", CHE = "CHF", EA20 = "EUR",
+  GBR = "GBP", JPN = "JPY", NOR = "NOK", NZL = "NZD", SWE = "SEK"
+)
 
 # Output file paths
 out_raw_fx     <- file.path(data_dir, "fx_raw_rates.rds")
@@ -87,38 +105,64 @@ out_factors    <- file.path(data_dir, "fx_factor_returns.rds")
 library(fredr)
 library(dplyr, warn.conflicts = FALSE)
 library(tibble)
+library(lubridate, warn.conflicts = FALSE)
+library(tidyr)
 
 fredr_set_key(Sys.getenv("FRED_API_KEY"))
 
 if (!dir.exists(data_dir)) dir.create(data_dir, recursive = TRUE)
 
-# Fetch helper: pull one FRED series with rate-limit delay
-fetch_fred <- function(series_id, start = obs_start, end = obs_end) {
-  Sys.sleep(api_delay)
-  cat(sprintf("  Fetching %s ...\n", series_id))
-  fredr(
-    series_id         = series_id,
-    observation_start = start,
-    observation_end   = end
-  ) |>
-    select(date, series_id, value) |>
-    as_tibble()
+# Fetch helper: pull one FRED series with rate-limit delay and retry on transient errors
+fetch_fred <- function(series_id, start = obs_start, end = obs_end, max_retries = 3) {
+  for (attempt in seq_len(max_retries)) {
+    Sys.sleep(api_delay)
+    if (attempt > 1) cat(sprintf("  Retry %d for %s ...\n", attempt, series_id))
+    else cat(sprintf("  Fetching %s ...\n", series_id))
+    result <- tryCatch({
+      fredr(
+        series_id         = series_id,
+        observation_start = start,
+        observation_end   = end
+      ) |>
+        select(date, series_id, value) |>
+        as_tibble()
+    }, error = function(e) {
+      if (attempt == max_retries) stop(e)
+      Sys.sleep(2 * attempt)  # back off before retry
+      NULL
+    })
+    if (!is.null(result)) return(result)
+  }
 }
 
 
 # ============================================================
-# 1. Fetch Exchange Rate Data
+# 1. Fetch Exchange Rate Data (daily, then take end-of-month)
 # ============================================================
 
-cat("\n=== Fetching exchange rates ===\n")
+cat("\n=== Fetching daily exchange rates ===\n")
 
-fx_raw_list <- lapply(names(fx_series), function(ccy) {
+fx_daily_list <- lapply(names(fx_series), function(ccy) {
   fetch_fred(fx_series[[ccy]]) |>
     mutate(currency = ccy)
 })
-fx_raw <- bind_rows(fx_raw_list)
+fx_daily <- bind_rows(fx_daily_list)
+cat(sprintf("  Pulled %d daily exchange rate observations\n", nrow(fx_daily)))
 
-cat(sprintf("  Pulled %d exchange rate observations\n", nrow(fx_raw)))
+# FIX 1 (cont): Take last non-NA observation per month for each currency.
+# This gives end-of-month (last business day) values, eliminating the
+# smoothing and timing lag inherent in monthly averages.
+fx_raw <- fx_daily |>
+  filter(!is.na(value)) |>
+  mutate(ym = floor_date(date, "month")) |>
+  arrange(currency, date) |>
+  group_by(currency, ym) |>
+  slice_tail(n = 1) |>
+  ungroup() |>
+  mutate(date = ym) |>
+  select(date, series_id, value, currency)
+
+cat(sprintf("  End-of-month observations: %d\n", nrow(fx_raw)))
 saveRDS(fx_raw, out_raw_fx)
 
 
@@ -187,7 +231,135 @@ cpi_q_list <- lapply(names(cpi_quarterly_series), function(ccy) {
 cpi_raw <- bind_rows(c(cpi_raw_list, cpi_q_list))
 
 cat(sprintf("  Pulled %d CPI observations\n", nrow(cpi_raw)))
+
+# FIX 2 (cont): Verify CPI values are index levels (~50-150 for 2015=100 base),
+# NOT percentage changes (~0-5). Log of percentage changes is nonsensical.
+cat("\n  CPI index-level diagnostic (median values by currency):\n")
+cpi_diag <- cpi_raw |>
+  group_by(currency) |>
+  summarize(
+    median_val = median(value, na.rm = TRUE),
+    min_val    = min(value, na.rm = TRUE),
+    max_val    = max(value, na.rm = TRUE),
+    .groups    = "drop"
+  )
+for (i in seq_len(nrow(cpi_diag))) {
+  row <- cpi_diag[i, ]
+  status <- if (row$median_val > 20) "OK (index)" else "WARNING: looks like pct changes!"
+  cat(sprintf("    %s: median=%.1f  range=[%.1f, %.1f]  %s\n",
+              row$currency, row$median_val, row$min_val, row$max_val, status))
+}
+
+# If any series looks like percentage changes, attempt to find correct index series
+bad_cpi <- cpi_diag |> filter(median_val <= 20)
+if (nrow(bad_cpi) > 0) {
+  cat("\n  WARNING: Some CPI series appear to be percentage changes, not index levels.\n")
+  cat("  Attempting to find correct index-level series via FRED search...\n")
+  for (ccy in bad_cpi$currency) {
+    cat(sprintf("  Searching for CPI index for %s...\n", ccy))
+    search_results <- tryCatch({
+      Sys.sleep(api_delay)
+      fredr_series_search_text(
+        search_text = paste("CPI All Items", ccy, "Index 2015"),
+        limit = 5
+      )
+    }, error = function(e) NULL)
+    if (!is.null(search_results) && nrow(search_results) > 0) {
+      cat(sprintf("    Candidates: %s\n",
+                  paste(search_results$id, collapse = ", ")))
+    }
+  }
+  stop("Fix the CPI series IDs above before proceeding.")
+}
+
 saveRDS(cpi_raw, out_raw_cpi)
+
+
+# ============================================================
+# 3b. Fetch OECD PPP Exchange Rates (annual, free API)
+# ============================================================
+
+cat("\n=== Fetching OECD PPP exchange rates ===\n")
+
+ppp_tmp <- tempfile(fileext = ".csv")
+tryCatch({
+  download.file(oecd_ppp_url, ppp_tmp, quiet = TRUE,
+                headers = c(Accept = "application/vnd.sdmx.data+csv;file=true"))
+  ppp_raw <- read.csv(ppp_tmp, stringsAsFactors = FALSE)
+
+  # Parse: columns REF_AREA (country), TRANSACTION (PPP_B1GQ or EXC_E),
+  # TIME_PERIOD (year), OBS_VALUE
+  ppp_data <- ppp_raw |>
+    as_tibble() |>
+    filter(TRANSACTION %in% c("PPP_B1GQ", "EXC_E")) |>
+    select(country = REF_AREA, measure = TRANSACTION,
+           year = TIME_PERIOD, value = OBS_VALUE) |>
+    mutate(
+      currency = oecd_to_currency[country],
+      year = as.integer(year),
+      value = as.numeric(value)
+    ) |>
+    filter(!is.na(currency), !is.na(value)) |>
+    pivot_wider(
+      id_cols = c(currency, year),
+      names_from = measure,
+      values_from = value
+    ) |>
+    rename(ppp_rate = PPP_B1GQ, mkt_rate_eop = EXC_E)
+
+  cat(sprintf("  Fetched PPP data: %d currency-years, %d-%d\n",
+              nrow(ppp_data), min(ppp_data$year), max(ppp_data$year)))
+
+  # Interpolate annual PPP to monthly using relative CPI
+  # PPP_{i,m} = PPP_{i,Y} * (CPI_i,m / CPI_i,Y) / (CPI_US,m / CPI_US,Y)
+  # where Y is the year of the annual PPP observation
+  cpi_us <- cpi_raw |> filter(currency == "USD") |> select(date, cpi_us = value)
+
+  ppp_monthly <- ppp_data |>
+    # Create a Jan 1 date for each year to join with CPI
+    mutate(year_date = as.Date(paste0(year, "-01-01"))) |>
+    # Get CPI at year start for each currency
+    inner_join(
+      cpi_raw |>
+        mutate(year = as.integer(format(date, "%Y")),
+               year_date = as.Date(paste0(year, "-01-01"))) |>
+        filter(format(date, "%m") == "01") |>
+        select(currency, year, cpi_base_foreign = value),
+      by = c("currency", "year")
+    ) |>
+    inner_join(
+      cpi_us |>
+        mutate(year = as.integer(format(date, "%Y"))) |>
+        filter(format(date, "%m") == "01") |>
+        select(year, cpi_base_us = cpi_us),
+      by = "year"
+    )
+
+  # Expand to monthly
+  ppp_monthly_expanded <- ppp_monthly |>
+    crossing(month = 1:12) |>
+    mutate(date = as.Date(paste0(year, "-", sprintf("%02d", month), "-01"))) |>
+    filter(date >= obs_start, date <= obs_end) |>
+    inner_join(
+      cpi_raw |> filter(currency != "USD") |> select(date, currency, cpi_foreign = value),
+      by = c("date", "currency")
+    ) |>
+    inner_join(cpi_us, by = "date") |>
+    mutate(
+      # Interpolated monthly PPP = annual PPP adjusted by relative CPI drift
+      ppp_monthly = ppp_rate * (cpi_foreign / cpi_base_foreign) / (cpi_us / cpi_base_us)
+    ) |>
+    select(date, currency, ppp_monthly)
+
+  cat(sprintf("  Interpolated to %d monthly PPP observations\n", nrow(ppp_monthly_expanded)))
+  saveRDS(ppp_monthly_expanded, file.path(data_dir, "fx_ppp_rates.rds"))
+  ppp_available <- TRUE
+
+}, error = function(e) {
+  cat(sprintf("  WARNING: Failed to fetch OECD PPP data: %s\n", e$message))
+  cat("  Falling back to rolling-mean RER deviation for value signal.\n")
+  ppp_available <<- FALSE
+})
 
 
 # ============================================================
@@ -307,28 +479,50 @@ fx_signals <- fx_returns |>
   ungroup() |>
   select(-log_xr)
 
-# --- 7c. Value signal: log real exchange rate ---
-# RER = S * (CPI_US / CPI_foreign)  [all in foreign-per-USD convention]
-# log_rer = log(S) + log(CPI_US) - log(CPI_foreign)
-# HIGH log_rer = foreign currency is CHEAP (many foreign units per USD,
-#   but adjusted for price levels). CHEAP = value BUY (go long foreign).
-# LOW log_rer = foreign currency is EXPENSIVE = value SELL (go short).
+# --- 7c. Value signal: PPP deviation ---
+#
+# Signal = log(market_rate / ppp_rate) where both are in foreign-per-USD.
+#   POSITIVE = foreign ccy is CHEAP vs PPP (market rate > PPP rate, meaning
+#     you get more foreign currency per USD than PPP says you should).
+#     This is a value BUY -> go LONG foreign.
+#   NEGATIVE = foreign ccy is EXPENSIVE vs PPP -> go SHORT.
+#
+# PPP rates from OECD (annual), interpolated to monthly using relative CPI.
+# Falls back to rolling-mean RER deviation if PPP data unavailable.
 
-cpi_us <- cpi_raw |>
-  filter(currency == "USD") |>
-  select(date, cpi_us = value)
-
-cpi_foreign <- cpi_raw |>
-  filter(currency != "USD") |>
-  select(date, currency, cpi_foreign = value)
-
-value_data <- fx_normalized |>
-  inner_join(cpi_us, by = "date") |>
-  inner_join(cpi_foreign, by = c("date", "currency")) |>
-  mutate(
-    log_rer = log(rate) + log(cpi_us) - log(cpi_foreign)
-  ) |>
-  select(date, currency, log_rer)
+if (exists("ppp_available") && ppp_available) {
+  cat("  Using OECD PPP exchange rates for value signal\n")
+  value_data <- fx_normalized |>
+    inner_join(ppp_monthly_expanded, by = c("date", "currency")) |>
+    mutate(
+      # Both rate and ppp_monthly are in foreign-per-USD units
+      value_signal = log(rate / ppp_monthly)
+    ) |>
+    arrange(currency, date) |>
+    group_by(currency) |>
+    # Lag by one month: signal uses S_t, which determines the return
+    # from t-1 to t. Must lag to avoid look-ahead bias.
+    mutate(value_signal = lag(value_signal)) |>
+    ungroup() |>
+    select(date, currency, value_signal)
+} else {
+  cat("  Falling back to rolling-mean RER deviation for value signal\n")
+  cpi_us <- cpi_raw |> filter(currency == "USD") |> select(date, cpi_us = value)
+  cpi_foreign <- cpi_raw |> filter(currency != "USD") |> select(date, currency, cpi_foreign = value)
+  value_data <- fx_normalized |>
+    inner_join(cpi_us, by = "date") |>
+    inner_join(cpi_foreign, by = c("date", "currency")) |>
+    mutate(log_rer = log(rate) + log(cpi_us) - log(cpi_foreign)) |>
+    arrange(currency, date) |>
+    group_by(currency) |>
+    mutate(
+      log_rer_mean = slider::slide_dbl(log_rer, mean, .before = 59, .complete = TRUE),
+      value_signal = log_rer - log_rer_mean,
+      value_signal = lag(value_signal)
+    ) |>
+    ungroup() |>
+    select(date, currency, value_signal)
+}
 
 # Merge all signals
 fx_signals <- fx_signals |>
@@ -342,52 +536,55 @@ saveRDS(fx_signals, out_signals)
 # 8. Compute Factor Portfolio Returns
 # ============================================================
 #
-# For each factor, each month:
-#   - Cross-sectionally rank the 9 currencies by the signal
-#   - Long top 3 (highest signal), short bottom 3, equal-weighted
-#   - Factor return = mean(long returns) - mean(short returns)
+# FIX 4: Demeaned rank weights (AQR-style) replace tercile sorting.
 #
-# Sign conventions for sorting:
-#   Carry:    high carry_signal = high yield = LONG  (ascending rank, long top)
-#   Momentum: high momentum_signal = winners = LONG  (ascending rank, long top)
-#   Value:    high log_rer = cheap foreign ccy = LONG (ascending rank, long top)
-#             [foreign ccy is cheap when log_rer is high in our convention,
-#              because it takes many foreign units per USD even after CPI adjustment]
+# For each factor, each month:
+#   1. Cross-sectionally rank the N currencies by the signal
+#   2. Compute raw weight: w_i = rank_i - mean(rank)
+#      (positive for above-median signal, negative for below)
+#   3. Scale so sum of positive weights = 1, sum of negative weights = -1
+#   4. Factor return = sum(w_i * excess_return_i)
+#
+# This uses ALL currencies, not just the extremes, and weights more
+# aggressively toward the tails. Dollar-neutral by construction.
+#
+# Sign conventions for sorting (high signal = LONG):
+#   Carry:    high carry_signal = high yield = LONG
+#   Momentum: high momentum_signal = winners = LONG
+#   Value:    high value_signal = cheap (PPP deviation) = LONG
 
 cat("\n=== Computing factor portfolio returns ===\n")
 
-# Helper: compute long-short factor return from a signal column
+# Helper: compute long-short factor return using demeaned rank weights
 # signal_col: name of the signal column
-# long_high: if TRUE, long the highest-signal currencies (carry, momentum, value)
+# long_high: if TRUE, high signal gets positive (long) weight
 compute_factor_return <- function(df, signal_col, long_high = TRUE) {
   df |>
     filter(!is.na(.data[[signal_col]])) |>
     group_by(date) |>
-    filter(n() >= (n_long + n_short)) |>
+    filter(n() >= 3) |>
     mutate(
-      signal_rank = rank(.data[[signal_col]], ties.method = "first")
-    ) |>
-    mutate(
-      n_ccy = n(),
-      leg = case_when(
-        long_high & signal_rank > (n_ccy - n_long) ~ "long",
-        long_high & signal_rank <= n_short          ~ "short",
-        !long_high & signal_rank <= n_long          ~ "long",
-        !long_high & signal_rank > (n_ccy - n_short) ~ "short",
-        TRUE ~ "neutral"
+      # Rank from 1 (lowest signal) to N (highest signal)
+      signal_rank = rank(.data[[signal_col]], ties.method = "average"),
+      # Demean: positive weight for above-median, negative for below
+      raw_weight = signal_rank - mean(signal_rank),
+      # Flip sign if low signal should be long
+      raw_weight = raw_weight * ifelse(long_high, 1, -1),
+      # Scale: sum of positive weights = 1, sum of negative weights = -1
+      pos_sum = sum(raw_weight[raw_weight > 0]),
+      neg_sum = sum(abs(raw_weight[raw_weight < 0])),
+      weight = case_when(
+        raw_weight > 0  ~ raw_weight / pos_sum,
+        raw_weight < 0  ~ raw_weight / neg_sum,
+        TRUE            ~ 0
       )
     ) |>
-    filter(leg %in% c("long", "short")) |>
-    # Use NEXT month's excess return for the portfolio (signal at t, return at t+1)
-    # But since our signals and returns are already aligned (carry_signal is lagged),
-    # we use the current month's excess_return with the signal from the same row.
-    # The signal uses data through t-1 or earlier; the return is realized at t.
     summarize(
-      long_ret  = mean(excess_return[leg == "long"]),
-      short_ret = mean(excess_return[leg == "short"]),
-      .groups = "drop"
+      long_ret      = sum(weight[weight > 0] * excess_return[weight > 0]),
+      short_ret     = sum(weight[weight < 0] * excess_return[weight < 0]),
+      factor_return = sum(weight * excess_return),
+      .groups       = "drop"
     ) |>
-    mutate(factor_return = long_ret - short_ret) |>
     select(date, long_ret, short_ret, factor_return)
 }
 
@@ -397,7 +594,8 @@ carry_factor <- compute_factor_return(fx_signals, "carry_signal", long_high = TR
 momentum_factor <- compute_factor_return(fx_signals, "momentum_signal", long_high = TRUE) |>
   rename(mom_long = long_ret, mom_short = short_ret, mom_return = factor_return)
 
-value_factor <- compute_factor_return(fx_signals, "log_rer", long_high = TRUE) |>
+# Value: high value_signal = foreign ccy cheap vs PPP proxy = LONG
+value_factor <- compute_factor_return(fx_signals, "value_signal", long_high = TRUE) |>
   rename(val_long = long_ret, val_short = short_ret, val_return = factor_return)
 
 # Combine into a single factor return tibble

@@ -55,6 +55,9 @@ momentum_lookback <- 12L
 momentum_skip <- 1L
 beta_window <- 36L
 beta_min_obs <- 24L
+beta_shrink_ols <- 0.6       # Vasicek shrinkage weight on OLS beta (Fix 3)
+beta_shrink_prior <- 1.0     # Vasicek prior beta (Fix 3)
+min_countries <- 8L          # Min countries with non-missing signal per month (Fix 4)
 api_sleep <- 0.5
 
 # Helper: fetch a single FRED series safely
@@ -162,13 +165,19 @@ bond_returns <- yields_panel |>
   ) |>
   dplyr::filter(!is.na(yield_lag)) |>
   dplyr::mutate(
-    # Duration of 10Y par bond (semi-annual coupons) using lagged yield
-    # Guard against zero/negative yields: use small floor for duration calc
-    y_dur = pmax(yield_lag, 0.001),
-    d_mac = (1 + y_dur / 2) / y_dur * (1 - 1 / (1 + y_dur / 2)^20),
-    d_mod = d_mac / (1 + y_dur / 2),
-    # Monthly total return approximation
-    bond_return = yield_lag / 12 - d_mod * dy
+    # Exact constant-maturity par bond repricing (Approach B / Swinkels 2019)
+    # At month start: par bond with coupon = y_{t-1}, price = 1, maturity = 10Y
+    # At month end: reprice at y_t with remaining maturity = 10 - 1/12 years
+    # Guard against zero/negative yields: floor at 0.1% for repricing
+    y_start = pmax(yield_lag, 0.001),
+    y_end   = pmax(yield_10y, 0.001),
+    remaining = 2 * (10 - 1/12),  # semi-annual periods remaining
+    bond_return = (y_start / 12) +
+      (y_start / y_end) * (1 - 1 / (1 + y_end / 2)^remaining) +
+      1 / (1 + y_end / 2)^remaining - 1,
+    # Modified duration (for reference / diagnostics, not used in return calc)
+    d_mac = (1 + y_start / 2) / y_start * (1 - 1 / (1 + y_start / 2)^20),
+    d_mod = d_mac / (1 + y_start / 2)
   ) |>
   dplyr::ungroup() |>
   dplyr::select(date, country, yield_10y, rate_3m, bond_return, d_mod)
@@ -244,9 +253,13 @@ beta_data <- bond_returns |>
   ) |>
   dplyr::ungroup()
 
+# Fix 3: Apply Vasicek shrinkage toward 1.0 before using beta for sort & leverage
 defensive_signals <- beta_data |>
   dplyr::filter(!is.na(beta)) |>
-  dplyr::transmute(date, country, defensive = -beta, beta_raw = beta)
+  dplyr::mutate(
+    beta_shrunk = beta_shrink_ols * beta + (1 - beta_shrink_ols) * beta_shrink_prior
+  ) |>
+  dplyr::transmute(date, country, defensive = -beta_shrunk, beta_raw = beta_shrunk)
 
 # Combine all signals
 all_signals <- carry_signals |>
@@ -259,8 +272,9 @@ message("Saved factor signals.")
 
 # 6. Compute factor portfolio returns ----
 
-# Helper: tercile long/short factor return
-# At each date, rank by signal, go long top third, short bottom third
+# Fix 1: Demeaned rank weights (AQR methodology) instead of tercile sort.
+# w_i = c * (rank(signal_i) - mean_rank), scaled so sum(w+) = 1, sum(w-) = -1.
+# Fix 4: Require at least min_countries countries with non-missing signal per month.
 compute_ls_factor <- function(signals_df, signal_col, returns_df) {
   sig_col <- rlang::ensym(signal_col)
 
@@ -285,22 +299,22 @@ compute_ls_factor <- function(signals_df, signal_col, returns_df) {
 
   sig_dated |>
     dplyr::group_by(ret_date) |>
+    dplyr::filter(dplyr::n() >= min_countries) |>
     dplyr::mutate(
       n = dplyr::n(),
-      rank = rank(signal, ties.method = "average"),
-      tercile = dplyr::case_when(
-        rank <= n / 3 ~ "short",
-        rank > 2 * n / 3 ~ "long",
-        TRUE ~ "mid"
+      rk = rank(signal, ties.method = "average"),
+      w_raw = rk - (n + 1) / 2,
+      # Scale so sum of positive weights = 1 and sum of negative weights = -1
+      w = dplyr::if_else(
+        w_raw > 0,
+        w_raw / sum(w_raw[w_raw > 0]),
+        w_raw / sum(abs(w_raw[w_raw < 0]))
       )
     ) |>
-    dplyr::filter(tercile %in% c("long", "short")) |>
     dplyr::summarise(
-      r_long  = mean(bond_return[tercile == "long"], na.rm = TRUE),
-      r_short = mean(bond_return[tercile == "short"], na.rm = TRUE),
-      factor_return = r_long - r_short,
-      n_long  = sum(tercile == "long"),
-      n_short = sum(tercile == "short"),
+      factor_return = sum(w * bond_return),
+      n_long  = sum(w > 0),
+      n_short = sum(w < 0),
       .groups = "drop"
     ) |>
     dplyr::rename(date = ret_date) |>
@@ -316,12 +330,21 @@ value_returns <- compute_ls_factor(all_signals, value, bond_returns) |>
 mom_returns <- compute_ls_factor(all_signals, momentum, bond_returns) |>
   dplyr::transmute(date, momentum = factor_return)
 
-# Defensive/BAB: beta-neutral construction
+# Defensive/BAB: beta-neutral construction with rank weights within each leg
 # Long low-beta (below median), short high-beta (above median)
 # Scale each leg by 1/portfolio_beta
+# Fix 1: Use rank weights within each leg instead of equal weights
+# Fix 2: Subtract risk-free rate (US 3M T-bill) per Frazzini-Pedersen BAB formula
+# Fix 4: Require min_countries countries per month
 
-compute_bab_factor <- function(def_signals, returns_df) {
-  # Use beta_raw (positive beta) for portfolio construction
+# Extract US 3M rate as risk-free rate (already in yields_panel, in decimal)
+rf_monthly <- yields_panel |>
+  dplyr::filter(country == "US", !is.na(rate_3m)) |>
+  # Fix 2: Convert annualized decimal rate to monthly decimal
+  dplyr::transmute(date, rf = rate_3m / 12)
+
+compute_bab_factor <- function(def_signals, returns_df, rf_df) {
+  # Use beta_raw (shrunk beta) for portfolio construction and leverage
   sig_dated <- def_signals |>
     dplyr::select(date, country, beta_raw) |>
     dplyr::filter(!is.na(beta_raw))
@@ -337,31 +360,51 @@ compute_bab_factor <- function(def_signals, returns_df) {
     dplyr::inner_join(
       returns_df |> dplyr::select(date, country, bond_return),
       by = c("ret_date" = "date", "country" = "country")
-    )
+    ) |>
+    dplyr::left_join(rf_df, by = c("ret_date" = "date"))
 
   sig_dated |>
     dplyr::group_by(ret_date) |>
+    dplyr::filter(dplyr::n() >= min_countries) |>
     dplyr::mutate(
       med_beta = median(beta_raw),
       side = dplyr::if_else(beta_raw <= med_beta, "low", "high")
     ) |>
+    # Fix 1: Rank weights within each leg, normalized to sum to 1
+    # Low-beta leg: rank by -beta (lowest beta -> highest weight)
+    # High-beta leg: rank by beta (highest beta -> highest weight)
+    dplyr::group_by(ret_date, side) |>
+    dplyr::mutate(
+      rk_within = dplyr::if_else(
+        side == "low",
+        rank(-beta_raw, ties.method = "average"),
+        rank(beta_raw, ties.method = "average")
+      ),
+      w_within = rk_within / sum(rk_within)
+    ) |>
+    dplyr::group_by(ret_date) |>
+    dplyr::mutate(
+      rf = dplyr::if_else(is.na(rf), 0, rf)
+    ) |>
     dplyr::summarise(
-      r_low  = mean(bond_return[side == "low"], na.rm = TRUE),
-      r_high = mean(bond_return[side == "high"], na.rm = TRUE),
-      beta_low  = mean(beta_raw[side == "low"], na.rm = TRUE),
-      beta_high = mean(beta_raw[side == "high"], na.rm = TRUE),
+      r_low  = sum(w_within[side == "low"] * bond_return[side == "low"]),
+      r_high = sum(w_within[side == "high"] * bond_return[side == "high"]),
+      beta_low  = sum(w_within[side == "low"] * beta_raw[side == "low"]),
+      beta_high = sum(w_within[side == "high"] * beta_raw[side == "high"]),
+      rf = dplyr::first(rf),
       n_low  = sum(side == "low"),
       n_high = sum(side == "high"),
       .groups = "drop"
     ) |>
     dplyr::filter(n_low > 0, n_high > 0, beta_low > 0, beta_high > 0) |>
     dplyr::mutate(
-      factor_return = (1 / beta_low) * r_low - (1 / beta_high) * r_high
+      # Fix 2: BAB with excess returns: r_BAB = (1/beta_L)*(r_L - rf) - (1/beta_H)*(r_H - rf)
+      factor_return = (1 / beta_low) * (r_low - rf) - (1 / beta_high) * (r_high - rf)
     ) |>
     dplyr::rename(date = ret_date)
 }
 
-bab_returns <- compute_bab_factor(defensive_signals, bond_returns) |>
+bab_returns <- compute_bab_factor(defensive_signals, bond_returns, rf_monthly) |>
   dplyr::transmute(date, defensive = factor_return)
 
 # Combine all factor returns
