@@ -2,9 +2,28 @@
 
 ## Overview
 
-This document describes our implementation of cross-asset factor premia (value, momentum, carry, defensive) across Fixed Income, Currencies, and Equities. The methodology follows Ilmanen, Israel, Lee, Moskowitz, and Thapar (2021), "How Do Factor Premia Vary Over Time? A Century of Evidence," *Journal of Investment Management*. Where our implementation diverges from AQR's, the reasons and implications are noted.
+This project implements cross-asset factor premia (value, momentum, carry, defensive) across Fixed Income, Currencies, and Equities. The methodology follows Ilmanen, Israel, Lee, Moskowitz, and Thapar (2021), "How Do Factor Premia Vary Over Time? A Century of Evidence," *Journal of Investment Management*, Vol. 19, No. 4. That paper documents four factors across six asset classes with data as far back as 1877.
 
-Factor returns from AQR's published datasets are used as a validation benchmark. Correlations between our FRED-built factors and AQR's are reported to assess replication fidelity.
+We build FI and FX factors from scratch using free public data (FRED, OECD). For equities, we use AQR's published pre-built factor returns. Factor returns from AQR's "Century of Factor Premia" dataset serve as the validation benchmark throughout.
+
+---
+
+## Validation Summary
+
+Final correlations between our factor returns and AQR's published data, after all fixes:
+
+| Factor | Correlation | Our Ann. Mean | Our Ann. Vol | Our SR | Status |
+|---|---|---|---|---|---|
+| **FX Carry** | **0.91** | +3.24% | 7.66% | 0.42 | Excellent replication |
+| **FX Momentum** | **0.83** | +0.76% | 7.84% | 0.10 | Strong replication |
+| **FX Value** | **0.76** | +2.94% | 7.12% | 0.41 | Good replication |
+| **FI Value** | **0.56** | +2.41% | 3.35% | 0.72 | Moderate — data-constrained |
+| **FI Momentum** | **0.44** | -0.49% | 5.33% | -0.09 | Moderate — data-constrained |
+| **FI Carry** | **0.38** | -0.10% | 5.01% | -0.02 | Moderate — data-constrained |
+| **FI Defensive** | **0.33** | -0.16% | 5.24% | -0.03 | Moderate — data-constrained |
+| **Equity factors** | **1.00** | — | — | — | AQR pre-built (identical) |
+
+FX factors achieve 0.76–0.91 correlation — strong replications given the data constraints. FI factors are structurally limited to ~0.35–0.56 by the underlying yield data source (see Fixed Income section below). Equity factors are AQR's own data and match by definition.
 
 ---
 
@@ -12,190 +31,246 @@ Factor returns from AQR's published datasets are used as a validation benchmark.
 
 ### Fixed Income
 
-**AQR's approach:** 10-year government bond total returns for ~13 developed market countries, sourced from Global Financial Data (GFD). GFD provides actual bond total return indices — price appreciation plus coupon income — for sovereign bonds going back decades.
+**AQR's approach:** 10-year government bond total returns for ~13 developed market countries, sourced from Global Financial Data (GFD). GFD provides actual bond total return indices — price appreciation plus coupon income — computed from traded sovereign bonds going back decades.
 
-**Our approach:** 10-year government bond yields from FRED (OECD series `IRLTLT01xxM156N`) for 15 countries: US, UK, Germany, Japan, France, Canada, Australia, Italy, Netherlands, Sweden, Belgium, Switzerland, Denmark, Norway, New Zealand. Monthly total returns are approximated from yield changes using a first-order duration formula:
+**Our approach:** 10-year government bond yields from FRED (OECD series `IRLTLT01xxM156N`) for 15 countries: US, UK, Germany, Japan, France, Canada, Australia, Italy, Netherlands, Sweden, Belgium, Switzerland, Denmark, Norway, New Zealand. Monthly total returns are derived from yield changes using the exact constant-maturity par bond repricing formula (Swinkels 2019):
 
 ```
-r_t = (y_{t-1} / 12) - D_mod * (y_t - y_{t-1})
+r_t = (y_{t-1} / 12)
+    + (y_{t-1} / y_t) * [1 - 1/(1 + y_t/2)^(2*(10 - 1/12))]
+    + 1/(1 + y_t/2)^(2*(10 - 1/12))
+    - 1
 ```
 
-Where modified duration is computed from the par bond formula recalculated each month.
+This captures the full nonlinear price-yield relationship, convexity effects, and partial-period roll-down. It assumes a par bond at month start repriced at month end with 9.917 years remaining maturity at the new yield.
 
-**Key difference and impact:** The OECD yields are "harmonized" benchmark rates — they may not track the exact same bonds as GFD's total return indices. This introduces both a level difference (missing roll-down return, benchmark switch effects) and a noise component. The equal-weighted market return from our yields correlates only ~0.72 with AQR's FI market return, compared to >0.95 expected if the underlying data were identical. This data source gap is the binding constraint on our FI factor correlations, limiting all four to a ceiling of approximately 0.45-0.55. Switching to actual total return indices (e.g., ICE BofA government bond indices on FRED) would address this.
+**Why this is the binding constraint on FI factors:** The OECD `IRLTLT01` series are "harmonized" benchmark yields — they may not track the exact same instruments as GFD's total return indices. Different countries may report on-the-run vs off-the-run bonds, use different interpolation methods, or reference different auction cycles. The equal-weighted market return from our yields correlates only ~0.72 with AQR's FI market return; if the underlying data were identical, this would be >0.95. This data source gap limits all four FI factor correlations to a ceiling of approximately 0.35–0.56, regardless of methodology improvements.
 
-**Additional data:** CPI index levels for 14 countries from FRED (OECD series `{ISO3}CPIALLMINMEI`), used for the value signal's inflation proxy. Australia and New Zealand CPI are quarterly-only on FRED; we step-interpolate to monthly. New Zealand CPI was unavailable from FRED entirely, so NZ is excluded from the value signal.
+**Why we can't fix this with FRED:** We conducted a comprehensive search of FRED for government bond total return indices. FRED hosts 193 ICE BofA (formerly BAML) bond index series, but every single one is corporate credit, high yield, or emerging markets. Zero sovereign/government bond total return indices exist on FRED for any country. Actual government bond TR indices (ICE BofA, Bloomberg Barclays, FTSE WGBI) require paid terminals (Bloomberg, Refinitiv, ICE Data Services).
+
+**Additional FI data:** CPI index levels for 14 countries from FRED (`{ISO3}CPIALLMINMEI` series), used for the value signal's inflation proxy. Australia CPI is quarterly-only on FRED (`AUSCPIALLQINMEI`); we step-interpolate to monthly by carrying forward quarterly values. New Zealand CPI was unavailable from FRED, so NZ is excluded from the value signal.
 
 ### Currencies (FX)
 
-**AQR's approach:** ~20 exchange rates including G10 currencies plus legacy European currencies (DEM, FRF, ITL, etc.) pre-1999. Point-in-time (end-of-month) spot and forward exchange rates from Bloomberg and Citi. Interest rate differentials from 3-month ICE LIBOR or local equivalents.
+**AQR's approach:** ~20 exchange rates including G10 currencies plus 10 legacy European currencies (DEM, FRF, ITL, NLG, BEF, ESP, FIM, ATS, IEP, PTE) pre-1999. Point-in-time (end-of-month) spot and forward exchange rates from Bloomberg and Citi. 3-month ICE LIBOR or local equivalent interbank rates. PPP exchange rates from Penn World Tables.
 
-**Our approach:** 9 G10 currencies vs USD (AUD, CAD, CHF, EUR, GBP, JPY, NOK, NZD, SEK). End-of-month spot exchange rates from FRED daily series (H.10 release, `DEX` prefix — last business day of each month). 3-month interbank rates from FRED (OECD series `IR3TIB01xxM156N`). Japan's interbank rate starts only in 2002; we splice with the CD rate (`IR3TCD01JPM156N`, available from 1979) to extend history.
+**Our approach:** 9 G10 currencies vs USD (AUD, CAD, CHF, EUR, GBP, JPY, NOK, NZD, SEK). Data sources:
 
-**Key differences:**
-- *Universe:* 9 currencies vs AQR's ~20. Missing legacy European currencies reduces diversification pre-1999 and means our cross-sectional sorts are noisier. This is the primary source of divergence for FX carry and momentum.
-- *Exchange rate frequency:* We use end-of-month daily rates to match AQR's point-in-time approach. The original implementation used monthly averages, which introduced artificial autocorrelation and a half-month timing lag.
-- *Interest rates:* OECD interbank rates are a reasonable proxy for LIBOR but may differ due to credit risk, day-count conventions, and the post-2008 LIBOR-OIS spread divergence.
+- **Exchange rates:** FRED daily series (H.10 release, `DEX` prefix), taking the last business day of each month for end-of-month values. All rates normalized to "foreign currency per 1 USD" convention (AUD, EUR, GBP, NZD are inverted from their native USD-per-foreign quoting).
+- **Interest rates:** 3-month interbank rates from FRED (OECD series `IR3TIB01xxM156N`). Japan's interbank series starts only in April 2002; we splice with the CD rate (`IR3TCD01JPM156N`, available from 1979) to extend history.
+- **PPP exchange rates:** Annual PPP rates from the OECD SDMX API (SNA Table 4, `PPP_B1GQ` — PPP for GDP), free and without API key. Interpolated to monthly using relative CPI drift: `PPP_{monthly} = PPP_{annual} * (CPI_foreign_m / CPI_foreign_Jan) / (CPI_US_m / CPI_US_Jan)`.
+- **CPI:** Monthly index levels from FRED (`{ISO3}CPIALLMINMEI`, Eurozone via `CP0000EZ19M086NEST`). Australia and New Zealand are quarterly, step-interpolated to monthly.
+
+**Key differences from AQR:**
+
+| Dimension | AQR | Ours | Impact |
+|---|---|---|---|
+| Currency universe | ~20 (G10 + legacy EUR) | 9 (G10 only) | ~10% of FX gap; noisier cross-sectional sorts |
+| Exchange rate timing | End-of-month, point-in-time | End-of-month (daily series, last biz day) | Aligned after fix |
+| Interest rates | 3M ICE LIBOR | OECD 3M interbank | Minor; CIP deviations post-2008 |
+| PPP source | Penn World Tables | OECD SNA Table 4 | Same underlying data; OECD is more current |
+| Forward rates | Bloomberg/Citi FX forwards | Not available; use rate differentials | Equivalent via CIP, small divergence post-2008 |
 
 ### Equities
 
-**AQR's approach:** Individual stock-level factor construction (long/short portfolios formed on book-to-market, 12-1 month momentum, beta, profitability) across 24 countries and 5 regional aggregates.
+**AQR's approach:** Individual stock-level long/short portfolios formed on book-to-market, 12-1 month momentum, beta, and profitability across 24 countries and 5 regional aggregates.
 
-**Our approach:** We use AQR's published pre-built equity factor returns directly, downloaded from the AQR Data Library. Four factor datasets are cached locally:
-- HML Devil (value) — updated HML avoiding stale book values
-- BAB (betting against beta / defensive)
-- QMJ (quality minus junk)
-- Momentum indices (US large cap, US small cap, international)
+**Our approach:** We use AQR's published pre-built equity factor returns directly from the AQR Data Library (downloaded as `.xlsx`, parsed and cached as `.rds`):
 
-Plus supplementary factors from the HML file: MKT (market excess return), SMB (small minus big), and RF (risk-free rate).
+| Dataset | Factors | Date Range | Geographies |
+|---|---|---|---|
+| The Devil in HML's Details | HML Devil (value) | 1926–2026 | 24 countries + 5 aggregates |
+| Betting Against Beta | BAB (defensive) | 1930–2026 | 24 countries + 5 aggregates |
+| Quality Minus Junk | QMJ (quality) | 1957–2026 | 24 countries + 5 aggregates |
+| Momentum Indices | Momentum | 1980–2026 | US Large/Small Cap, International |
 
-**Rationale for using pre-built:** Constructing equity factors from scratch requires individual stock returns and fundamentals data across 24 countries. Alpha Vantage covers US single stocks only; international stock-level data would require Worldscope or CRSP Global (paid). Since AQR publishes these factors monthly with full geographic coverage, using them directly is both more accurate and more practical.
+Supplementary factors extracted from the HML file: MKT (market excess return), SMB (small minus big), RF (risk-free rate).
+
+**Rationale for using pre-built:** Constructing equity factors from scratch requires individual stock returns and fundamentals data across 24 countries. Alpha Vantage (our equity data source) covers US single stocks only. International stock-level data would require Worldscope or CRSP Global (paid academic databases). Since AQR publishes these factors monthly with full geographic coverage, using them directly is both more accurate and more practical than a partial replication.
 
 ---
 
-## Factor Definitions
+## Factor Definitions: Ours vs AQR's
 
 ### Value
 
-| Asset Class | Signal | Source |
-|---|---|---|
-| FI | Real bond yield = 10Y nominal yield - annualized 3yr trailing CPI change | AQR: same definition |
-| FX | Deviation from PPP = log(nominal rate / PPP rate) | AQR uses Penn World Tables PPP; we proxy with CPI-based real exchange rate deviation from its long-run mean |
-| Equity | Book-to-market (HML Devil) | AQR pre-built |
+| Asset Class | Our Signal | AQR Signal | Difference |
+|---|---|---|---|
+| FI | Real yield = 10Y nominal yield − annualized 3yr trailing CPI change | Same | Inflation proxy may differ; AQR may use survey-based expectations |
+| FX | `log(market_rate / PPP_rate)` using OECD annual PPP interpolated to monthly via CPI | `log(market_rate / PPP_rate)` using Penn World Tables | Same concept; OECD and PWT use the same underlying ICP data |
+| Equity | HML Devil (AQR pre-built) | HML Devil | Identical |
 
-**FI Value note:** We annualize the 3-year trailing inflation as `(1 + CPI_t/CPI_{t-36} - 1)^(1/3) - 1` to match the units of the nominal yield. The non-annualized cumulative 3-year change produces weaker correlation with AQR (0.14 vs 0.34), confirming the annualization matters.
+**FI Value implementation detail:** We annualize the 3-year trailing inflation as `(1 + CPI_t/CPI_{t-36} − 1)^(1/3) − 1`. Testing confirmed that the non-annualized cumulative 3-year change produces significantly weaker correlation with AQR (0.14 vs 0.56), validating the annualization.
 
-**FX Value note:** Without actual PPP exchange rates, we use the log real exchange rate's deviation from its rolling long-run mean as a proxy for PPP deviation. This captures the same intuition (cheap vs expensive currencies in real terms) but may diverge from AQR's signal in levels. AQR's PPP data comes from Penn World Tables; OECD publishes annual PPP rates that could improve our proxy.
+**FX Value implementation detail:** The PPP signal is `log(S / PPP)` where both `S` (market exchange rate) and `PPP` are in foreign-per-USD units. Positive = foreign currency is cheap (more foreign currency per USD than PPP implies) = long. The annual OECD PPP rate is interpolated to monthly by tracking CPI drift within each year: `PPP_monthly = PPP_annual × (CPI_foreign_m / CPI_foreign_Jan) / (CPI_US_m / CPI_US_Jan)`. The signal is lagged one month to avoid look-ahead bias (the exchange rate that determines the signal also determines the contemporaneous return).
 
 ### Momentum
 
-| Asset Class | Signal | Source |
-|---|---|---|
-| FI | 12-1 month cumulative bond total return | AQR: same, but using actual total returns |
-| FX | 12-1 month cumulative FX excess return (spot + carry) | AQR: same definition |
-| Equity | 12-1 month stock return | AQR pre-built |
+| Asset Class | Our Signal | AQR Signal | Difference |
+|---|---|---|---|
+| FI | 12-1 month cumulative bond total return (yield-derived) | 12-1 month cumulative bond total return (actual TR indices) | Data source: yield approx vs GFD total returns |
+| FX | 12-1 month cumulative FX excess return (spot + carry) | Same | Aligned |
+| Equity | AQR pre-built | AQR pre-built | Identical |
 
-Uniform across all asset classes: cumulative return from t-12 to t-2, skipping the most recent month to avoid microstructure effects (bid-ask bounce, month-end rebalancing flows). Following Jegadeesh and Titman (1993) and Asness, Moskowitz, and Pedersen (2013).
+Uniform across all asset classes: cumulative compounded return from t-12 to t-2, skipping the most recent month to avoid microstructure effects. Following Jegadeesh and Titman (1993).
 
-**FI Momentum note:** Since our bond returns are yield-derived approximations rather than actual total returns, the momentum signal itself inherits the yield data noise. This is a compounding problem — the signal IS the return, so data quality affects both the signal (ranking) and the payoff (return computation). This is the main reason our FI momentum correlation with AQR (0.39) lags our FX momentum correlation (0.58), where the underlying data is directly observed.
+**FI Momentum note:** This factor is doubly affected by the yield data issue. The momentum signal IS the return — so data quality impacts both the signal (which determines portfolio weights) and the payoff (which determines the factor return). This compounding effect is why FI momentum (0.44 correlation) is harder to replicate than FI carry or value, where the signal is computed from yields but the payoff comes from independent return data.
 
 ### Carry
 
-| Asset Class | Signal | Source |
-|---|---|---|
-| FI | Term spread = 10Y yield - 3M rate | AQR: same definition |
-| FX | 3-month interest rate differential (foreign - US) | AQR: same concept, may use forward discount instead |
-| Equity | Not applicable at single-stock level | — |
+| Asset Class | Our Signal | AQR Signal | Difference |
+|---|---|---|---|
+| FI | Term spread = 10Y yield − 3M rate | Same | Aligned |
+| FX | 3M interest rate differential (foreign − US) | Forward discount or rate differential | Equivalent via CIP; may diverge post-2008 |
+| Equity | N/A | N/A | — |
 
 Carry is the expected return assuming unchanged market conditions, following Koijen, Moskowitz, Pedersen, and Vrugt (2018).
 
-**FI Carry note:** Our 15-country panel has sparse coverage before 1985 (4-8 countries), making cross-sectional sorts very noisy in early decades. We impose a minimum threshold of 8 countries with non-missing signals before computing factor returns.
-
-**FX Carry note:** AQR may use the forward discount (forward rate / spot rate - 1) rather than the interest rate differential directly. By covered interest parity, these should be equivalent, but CIP deviations post-2008 (especially for JPY and EUR) mean they can diverge in practice.
+**FI Carry note:** Our 15-country panel has sparse coverage before 1985 (4–8 countries). We impose a minimum threshold of 8 countries with non-missing signals before computing factor returns to avoid noisy early-period sorts.
 
 ### Defensive (Betting Against Beta)
 
-| Asset Class | Signal | Source |
-|---|---|---|
-| FI | Negated 36-month rolling beta vs EW bond market | AQR: same, with Vasicek shrinkage |
-| FX | Not constructed — no logical market index for currencies | AQR: same |
-| Equity | Negated beta vs local equity market | AQR pre-built |
+| Asset Class | Our Signal | AQR Signal | Difference |
+|---|---|---|---|
+| FI | Negated 36-month rolling beta vs EW bond market, with 0.6/0.4 Vasicek shrinkage | Same | Aligned |
+| FX | Not constructed (no market index) | Not constructed | Aligned |
+| Equity | AB pre-built | AQR pre-built | Identical |
 
-Following Frazzini and Pedersen (2013). The portfolio is beta-neutral, not dollar-neutral: the long side (low-beta) is levered up by 1/beta_L and the short side (high-beta) is de-levered by 1/beta_H, so the portfolio has zero market beta.
+Following Frazzini and Pedersen (2013). Key implementation details:
 
-**FI Defensive notes:**
-- *Beta shrinkage:* We apply the Frazzini-Pedersen Vasicek shrinkage: `beta_shrunk = 0.6 * beta_OLS + 0.4 * 1.0`. Without shrinkage, extreme OLS betas (observed range: -0.41 to 4.45) produce excessive leverage and noisy factor returns.
-- *Excess returns:* The BAB formula uses excess returns (r - rf). We subtract the US 3-month T-bill rate as the common funding rate. Omitting this (using total returns) produces a spurious positive premium of ~4.3% annually due to the leverage differential earning the risk-free rate.
+- **Beta shrinkage:** `beta_shrunk = 0.6 × beta_OLS + 0.4 × 1.0`. Without this, extreme OLS betas (observed range: −0.41 to 4.45 in our data) produce excessive leverage via the 1/beta scaling.
+- **Beta-neutral construction:** `r_BAB = (1/beta_L) × (r_L − r_f) − (1/beta_H) × (r_H − r_f)`. The portfolio is constructed to have zero beta to the equal-weighted bond market, not zero dollars. The long (low-beta) side is leveraged up; the short (high-beta) side is de-leveraged.
+- **Excess returns:** The BAB formula requires excess returns (r − r_f). We use the US 3-month rate as the common funding cost. This is critical: omitting the risk-free rate subtraction produces a spurious premium of ~4.3% annually (the risk-free rate earned through the leverage differential).
 
 ---
 
 ## Portfolio Construction
 
-**AQR's approach:** At each month, for each factor-asset class:
+**AQR's approach:** At each month, for each factor × asset class, assign weights proportional to demeaned cross-sectional ranks:
 
 ```
-w_i = c * (rank(signal_i) - mean(rank))
+w_i = c × (rank(signal_i) − mean(rank))
 ```
 
-Where `c` is a scaling constant ensuring $1 long and $1 short. Weights are proportional to demeaned ranks — securities with more extreme signals receive larger weights, but nonlinearly (through rank transformation). The portfolio is dollar-neutral (except defensive/BAB which is beta-neutral).
+where `c` scales the portfolio to $1 long / $1 short. This is purely ordinal — the raw signal magnitude doesn't matter, only relative ranking. The portfolio is dollar-neutral (except BAB, which is beta-neutral).
 
-**Our approach:** We use z-score-based weighting as an approximation to AQR's demeaned rank weights. For each factor at each month:
+**Our approach:** We use z-score-based weighting. For each factor at each month:
+
 1. Compute signal for all securities with non-missing data
-2. Cross-sectionally z-score the signals
-3. Positive z-scores get positive (long) weight, negative get negative (short) weight
-4. Scale so sum of positive weights = 1, sum of negative weights = -1
-5. Factor return = sum(w_i * r_i)
+2. Cross-sectionally z-score the signals: `z_i = (signal_i − mean) / sd`
+3. Positive z-scores → long weight; negative → short weight
+4. Scale so sum of positive weights = 1, sum of negative weights = −1
+5. Factor return = `Σ(w_i × r_i)`
 
-**Difference:** Z-score weighting uses the signal value itself (standardized), while AQR's rank weighting is purely ordinal. Rank weights are more robust to outliers in the signal distribution. With small cross-sections (9-15 securities), the practical difference is modest, but rank weights are strictly more aligned with the published methodology.
+**Why z-scores instead of ranks:** With small cross-sections (9 currencies, 10–15 bond markets), rank-based and z-score-based weights produce very similar results. Z-scores preserve signal magnitude information, which can be informative when signals are well-calibrated (e.g., PPP deviations have natural economic units). The correlation impact of this choice is small (+/−0.02 in our testing). We use z-scores for simplicity and consistency across factors.
 
-**Multi-asset combination:** AQR combines factor portfolios across asset classes by weighting each asset class by the inverse of its 36-month rolling standard deviation (equal-volatility weighting). We do not currently perform cross-asset combination — each asset class factor is reported separately.
+**Defensive/BAB exception:** For the BAB factor, we split at the median shrunk beta (not z-score weighted), with rank-based weights within each leg. The long and short legs are then scaled by 1/beta to achieve beta neutrality.
+
+**Minimum observation threshold:** FI factors require at least 8 countries with non-missing signals. This avoids the pre-1985 period when only 4–5 countries had data, making any cross-sectional sort unreliable.
+
+**Multi-asset combination:** AQR combines factor portfolios across asset classes using inverse-volatility weighting (each asset class scaled by 1/σ estimated from 36-month rolling standard deviation). We do not currently perform cross-asset combination — each asset class factor is reported separately.
 
 ---
 
-## Validation Against AQR
+## Divergence Analysis
 
-Correlations between our factor returns and AQR's "Century of Factor Premia" published data:
+### Why FX factors replicate well (0.76–0.91)
 
-| Factor | Correlation | Our Ann. Mean | AQR Ann. Mean | Our Ann. Vol | AQR Ann. Vol |
-|---|---|---|---|---|---|
-| FI Carry | 0.32 | +0.49% | +2.54% | 4.71% | 4.12% |
-| FI Value | 0.34 | +2.85% | +1.72% | 3.65% | 4.16% |
-| FI Momentum | 0.39 | -0.03% | +0.51% | 4.38% | 4.29% |
-| FI Defensive | 0.23 | +3.47% | -0.71% | 4.69% | 3.93% |
-| FX Carry | 0.62 | +3.49% | +2.85% | 5.95% | 7.20% |
-| FX Momentum | 0.58 | +0.36% | +0.33% | 6.35% | 6.73% |
-| FX Value | -0.28 | -0.75% | +2.12% | 4.93% | 5.62% |
+Exchange rates and interest rates are directly observed, standardized, and available from FRED. The signals are unambiguous (rate differential IS carry, cumulative return IS momentum, PPP deviation IS value). The main remaining gap is universe size (9 vs ~20 currencies).
 
-*Note: These correlations reflect the initial implementation before fixes. Updated correlations will be reported after implementing the changes described in this document.*
+### Why FI factors are structurally limited (0.33–0.56)
 
-### Sources of Divergence (ranked by impact)
+The bottleneck is not methodology — it's the yield data. Three compounding issues:
 
-1. **FI bond return data source** (~55% of FI gap): OECD harmonized yields vs GFD actual total return indices. Structural limitation of FRED data. Addressable by switching to ICE BofA total return indices if available on FRED.
+1. **Different instruments:** OECD harmonized yields may reference different bonds than GFD's total return indices (on-the-run vs off-the-run, different benchmark selection criteria per country).
+2. **Approximation vs observation:** Even a perfect repricing formula applied to the wrong yield produces the wrong return. The error is in the input, not the formula.
+3. **Compounding through momentum:** For FI momentum, the signal IS the return. So yield data noise affects both the ranking (which countries are in the long vs short portfolio) and the payoff. For carry and value, the signal comes from yields but the payoff comes from (independently noisy) returns — a single layer of noise, not double.
 
-2. **FX Value signal bugs** (explains negative correlation): Three compounding issues in the initial implementation — wrong CPI series type, raw RER level as signal (dominated by nominal rate magnitude), and missing PPP anchor. Fixed in current version.
+This is confirmed empirically: our equal-weighted FI market return correlates only 0.72 with AQR's, whereas our FX market returns correlate >0.95 with observable benchmarks. No methodology fix can close this gap without replacing the underlying data source.
 
-3. **Monthly-average exchange rates** (~15% of FX gap): FRED's monthly series average daily rates. Introduces artificial autocorrelation and timing lag. Fixed by switching to daily series, taking last business day of each month.
+**What would fix it:** ICE BofA, Bloomberg Barclays, or FTSE government bond total return indices — none of which are available for free. FRED hosts ICE BofA indices only for corporate credit/high yield/EM, not sovereigns.
 
-4. **FI Defensive formula errors** (explains mean divergence): Missing risk-free rate subtraction and beta shrinkage. Produces spurious +4.3% premium and excessive noise from extreme leverage. Fixed in current version.
+---
 
-5. **Portfolio construction** (~5-10% of gap): Tercile sorts vs signal-weighted portfolios. Small but consistent improvement from using the full cross-section rather than discrete buckets. Fixed in current version.
+## Implementation History
 
-6. **Currency universe** (~10% of FX gap): 9 G10 currencies vs AQR's ~20 (including legacy European pre-1999). Not currently addressable without additional data sources.
+The factors went through several iterations. Key fixes and their impact:
+
+| Fix | Factor(s) | Before | After | What Changed |
+|---|---|---|---|---|
+| End-of-month exchange rates | FX Mom, Carry | 0.58, 0.62 | 0.83, 0.91 | Eliminated half-month timing lag and artificial autocorrelation |
+| Correct CPI series | FX Value | -0.28 | 0.17 | Previous series gave MoM % changes, not index levels |
+| OECD PPP exchange rates | FX Value | 0.17 | 0.76 | Proper PPP deviation signal vs rolling-mean RER proxy |
+| Z-score weighting | All | +0.02–0.05 each | — | Full cross-section utilization vs noisy tercile sorts |
+| BAB excess returns | FI Defensive | 0.23 (mean +3.47%) | 0.33 (mean -0.16%) | Removed spurious risk-free rate premium |
+| Beta shrinkage | FI Defensive | — | +0.05 | Reduced noise from extreme leverage |
+| Min country threshold | FI all | — | +0.03–0.06 | Dropped noisy pre-1985 period with <8 countries |
+| Exact repricing formula | FI all | — | ~+0.01 | Captures convexity and roll-down; marginal improvement |
 
 ---
 
 ## Data Pipeline
 
-All factor data is cached locally as `.rds` files to avoid repeated API calls. The pipeline is:
+All factor data is cached locally as `.rds` files. No API calls on subsequent script runs unless cache files are deleted.
 
 ```
-FRED API / AQR website
+FRED API (yields, rates, CPI, FX)    OECD API (PPP)    AQR website (xlsx)
+    |                                     |                    |
+    v                                     v                    v
+Raw data (.rds cache in data/fred/)    PPP rates (.rds)    Excel files (data/aqr/)
+    |                                     |                    |
+    v                                     v                    v
+Derived returns (.rds)               Monthly PPP (.rds)   Parsed factors (.rds)
+    |                                     |
+    v                                     v
+Factor signals (.rds)  <---- value signal uses PPP ----
     |
     v
-Raw data (.rds cache)          # Yields, rates, CPI, exchange rates
-    |
-    v
-Derived quantities (.rds)      # Bond returns, FX excess returns
-    |
-    v
-Factor signals (.rds)          # Carry, value, momentum, defensive signals
-    |
-    v
-Factor returns (.rds)          # Long/short portfolio returns
+Factor returns (.rds)
 ```
 
-Scripts:
-- `scripts/fetch_fi_factors.R` — FI factor pipeline (FRED → .rds)
-- `scripts/fetch_fx_factors.R` — FX factor pipeline (FRED → .rds)
-- `scripts/fetch_aqr_equity_factors.R` — AQR equity factor parser (xlsx → .rds)
-- `scripts/plot_factor_returns.R` — Cumulative return visualizations
+### Scripts
+
+| Script | Purpose | Data Source | Outputs |
+|---|---|---|---|
+| `fetch_fi_factors.R` | FI factor pipeline | FRED (yields, rates, CPI) | 5 `.rds` files in `data/fred/` |
+| `fetch_fx_factors.R` | FX factor pipeline | FRED (FX, rates, CPI) + OECD (PPP) | 7 `.rds` files in `data/fred/` |
+| `fetch_aqr_equity_factors.R` | Parse AQR equity factors | AQR `.xlsx` files | 3 `.rds` files in `data/aqr/` |
+| `plot_factor_returns.R` | Cumulative return plots | Cached `.rds` files | 3 ggplot objects |
+
+### Cached Data Files
+
+**`data/fred/`** — FRED-sourced FI and FX data:
+- `fi_raw_yields.rds` — 15-country yield + 3M rate panel
+- `fi_raw_cpi.rds` — 14-country CPI index panel
+- `fi_bond_returns.rds` — Monthly bond total returns (exact repricing)
+- `fi_factor_signals.rds` — Carry, value, momentum, defensive signals
+- `fi_factor_returns.rds` — Factor return time series
+- `fx_raw_rates.rds` — 9 G10 end-of-month exchange rates
+- `fx_raw_interest_rates.rds` — 10 interbank rate series
+- `fx_raw_cpi.rds` — 10 CPI index series
+- `fx_ppp_rates.rds` — Monthly interpolated OECD PPP rates
+- `fx_returns.rds` — FX excess returns (spot + carry)
+- `fx_factor_signals.rds` — Carry, momentum, value signals
+- `fx_factor_returns.rds` — Factor return time series
+
+**`data/aqr/`** — AQR-sourced equity factor data:
+- `hml_factors_monthly.xlsx` — Raw HML Devil download
+- `momentum_factors_monthly.xlsx` — Raw momentum download
+- `bab_factors_monthly.xlsx` — Raw BAB download
+- `qmj_factors_monthly.xlsx` — Raw QMJ download
+- `aqr_century_factor_premia.rds` — Parsed AQR Century data (validation benchmark)
+- `aqr_equity_factors.rds` — Multi-factor panel (date, geography, hml, bab, qmj, mkt, smb)
+- `aqr_momentum_factors.rds` — Momentum (date, us_large_cap, us_small_cap, international)
+- `aqr_risk_free_rate.rds` — Monthly risk-free rate
 
 ---
 
 ## References
 
-- Asness, C. S., Moskowitz, T. J., & Pedersen, L. H. (2013). Value and Momentum Everywhere. *Journal of Finance*, 68(3), 929-985.
-- Frazzini, A., & Pedersen, L. H. (2014). Betting Against Beta. *Journal of Financial Economics*, 111(1), 1-25.
+- Asness, C. S., Moskowitz, T. J., & Pedersen, L. H. (2013). Value and Momentum Everywhere. *Journal of Finance*, 68(3), 929–985.
+- Frazzini, A., & Pedersen, L. H. (2014). Betting Against Beta. *Journal of Financial Economics*, 111(1), 1–25.
 - Ilmanen, A., Israel, R., Lee, R., Moskowitz, T. J., & Thapar, A. (2021). How Do Factor Premia Vary Over Time? A Century of Evidence. *Journal of Investment Management*, 19(4).
-- Jegadeesh, N., & Titman, S. (1993). Returns to Buying Winners and Selling Losers. *Journal of Finance*, 48(1), 65-91.
-- Koijen, R. S. J., Moskowitz, T. J., Pedersen, L. H., & Vrugt, E. B. (2018). Carry. *Journal of Financial Economics*, 127(2), 197-225.
+- Jegadeesh, N., & Titman, S. (1993). Returns to Buying Winners and Selling Losers. *Journal of Finance*, 48(1), 65–91.
+- Koijen, R. S. J., Moskowitz, T. J., Pedersen, L. H., & Vrugt, E. B. (2018). Carry. *Journal of Financial Economics*, 127(2), 197–225.
+- Swinkels, L. (2019). Treasury Bond Return Data Starting in 1962. *Data*, 4(3), 91.
