@@ -10,23 +10,23 @@ benchmark_ticker <- "IWR"
 
 roll_window <- 252L
 save_images <- FALSE
-max_gross_exposure <- 2.0  # 200% cap
+max_gross_exposure <- 2.0 # 200% cap
 
 # Date range filtering (set to NULL to use all available data)
-start_date <- "2016-01-01"  # e.g., "2020-01-01"
-end_date <- NULL            # e.g., "2024-12-31"
+start_date <- "2016-01-01" # e.g., "2020-01-01"
+end_date <- NULL # e.g., "2024-12-31"
 
 # Complete ticker list (7-factor model)
 tickers <- c(
-  target_ticker,    # Target fund
+  target_ticker, # Target fund
   benchmark_ticker, # Benchmark
-  "IWD",            # R1000V
-  "IWF",            # R1000G
-  "IWN",            # R2000V
-  "IWO",            # R2000G
-  "MTUM",           # Momo
-  "USMV",           # MinVol
-  "QUAL"            # Quality
+  "IWD", # R1000V
+  "IWF", # R1000G
+  "IWN", # R2000V
+  "IWO", # R2000G
+  "MTUM", # Momo
+  "USMV", # MinVol
+  "QUAL" # Quality
 )
 
 factor_cols <- c("IWD", "IWF", "IWN", "IWO", "MTUM", "USMV", "QUAL")
@@ -94,7 +94,11 @@ benchmark_regression_data <- benchmark_returns %>%
 
 # Rolling Multi-Factor Constrained Regression - Target ----
 
-message(paste0("Running ", target_ticker, " constrained regression (no intercept)..."))
+message(paste0(
+  "Running ",
+  target_ticker,
+  " constrained regression (no intercept)..."
+))
 
 target_weights <- target_regression_data %>%
   dplyr::arrange(date) %>%
@@ -120,7 +124,11 @@ target_weights <- target_regression_data %>%
 
 # Rolling Multi-Factor Constrained Regression - Benchmark ----
 
-message(paste0("Running ", benchmark_ticker, " constrained regression (no intercept)..."))
+message(paste0(
+  "Running ",
+  benchmark_ticker,
+  " constrained regression (no intercept)..."
+))
 
 benchmark_weights <- benchmark_regression_data %>%
   dplyr::arrange(date) %>%
@@ -149,7 +157,11 @@ benchmark_weights <- benchmark_regression_data %>%
 message("Calculating factor hedge weights...")
 
 hedge_weights <- target_weights %>%
-  dplyr::inner_join(benchmark_weights, by = "date", suffix = c("_target", "_benchmark")) %>%
+  dplyr::inner_join(
+    benchmark_weights,
+    by = "date",
+    suffix = c("_target", "_benchmark")
+  ) %>%
   dplyr::mutate(
     hedge_IWD = IWD_benchmark - IWD_target,
     hedge_IWF = IWF_benchmark - IWF_target,
@@ -161,15 +173,26 @@ hedge_weights <- target_weights %>%
   ) %>%
   dplyr::select(
     date,
-    hedge_IWD, hedge_IWF, hedge_IWN, hedge_IWO,
-    hedge_MTUM, hedge_USMV, hedge_QUAL
+    hedge_IWD,
+    hedge_IWF,
+    hedge_IWN,
+    hedge_IWO,
+    hedge_MTUM,
+    hedge_USMV,
+    hedge_QUAL
   )
 
 # Calculate gross exposure and apply cap
 hedge_weights <- hedge_weights %>%
   dplyr::mutate(
-    gross_exposure_uncapped = 1.0 + abs(hedge_IWD) + abs(hedge_IWF) + abs(hedge_IWN) +
-      abs(hedge_IWO) + abs(hedge_MTUM) + abs(hedge_USMV) + abs(hedge_QUAL),
+    gross_exposure_uncapped = 1.0 +
+      abs(hedge_IWD) +
+      abs(hedge_IWF) +
+      abs(hedge_IWN) +
+      abs(hedge_IWO) +
+      abs(hedge_MTUM) +
+      abs(hedge_USMV) +
+      abs(hedge_QUAL),
     scale_factor = dplyr::if_else(
       gross_exposure_uncapped > max_gross_exposure,
       (max_gross_exposure - 1.0) / (gross_exposure_uncapped - 1.0),
@@ -182,10 +205,22 @@ hedge_weights <- hedge_weights %>%
     hedge_MTUM = hedge_MTUM * scale_factor,
     hedge_USMV = hedge_USMV * scale_factor,
     hedge_QUAL = hedge_QUAL * scale_factor,
-    gross_exposure = 1.0 + abs(hedge_IWD) + abs(hedge_IWF) + abs(hedge_IWN) +
-      abs(hedge_IWO) + abs(hedge_MTUM) + abs(hedge_USMV) + abs(hedge_QUAL),
-    net_exposure = 1.0 + hedge_IWD + hedge_IWF + hedge_IWN + hedge_IWO +
-      hedge_MTUM + hedge_USMV + hedge_QUAL
+    gross_exposure = 1.0 +
+      abs(hedge_IWD) +
+      abs(hedge_IWF) +
+      abs(hedge_IWN) +
+      abs(hedge_IWO) +
+      abs(hedge_MTUM) +
+      abs(hedge_USMV) +
+      abs(hedge_QUAL),
+    net_exposure = 1.0 +
+      hedge_IWD +
+      hedge_IWF +
+      hedge_IWN +
+      hedge_IWO +
+      hedge_MTUM +
+      hedge_USMV +
+      hedge_QUAL
   ) %>%
   dplyr::select(-gross_exposure_uncapped, -scale_factor)
 
@@ -202,16 +237,23 @@ neutral_returns <- hedge_weights %>%
     by = "future_date"
   ) %>%
   dplyr::inner_join(
-    target_returns %>% dplyr::rename(future_date = date, target_return = return),
+    target_returns %>%
+      dplyr::rename(future_date = date, target_return = return),
     by = "future_date"
   ) %>%
   dplyr::inner_join(
-    benchmark_returns %>% dplyr::rename(future_date = date, benchmark_return = return),
+    benchmark_returns %>%
+      dplyr::rename(future_date = date, benchmark_return = return),
     by = "future_date"
   ) %>%
   dplyr::mutate(
-    hedge_return = hedge_IWD * IWD + hedge_IWF * IWF + hedge_IWN * IWN +
-      hedge_IWO * IWO + hedge_MTUM * MTUM + hedge_USMV * USMV +
+    hedge_return = hedge_IWD *
+      IWD +
+      hedge_IWF * IWF +
+      hedge_IWN * IWN +
+      hedge_IWO * IWO +
+      hedge_MTUM * MTUM +
+      hedge_USMV * USMV +
       hedge_QUAL * QUAL,
     neutral_return = target_return + hedge_return
   ) %>%
@@ -238,15 +280,22 @@ cumulative_returns <- neutral_returns %>%
     cum_target = cumprod(1 + target_return) - 1,
     cum_benchmark = cumprod(1 + benchmark_return) - 1,
     cum_neutral = cumprod(1 + neutral_return) - 1,
-    cum_excess_target_vs_benchmark = cumprod(1 + excess_target_vs_benchmark) - 1,
-    cum_excess_neutral_vs_benchmark = cumprod(1 + excess_neutral_vs_benchmark) - 1,
+    cum_excess_target_vs_benchmark = cumprod(1 + excess_target_vs_benchmark) -
+      1,
+    cum_excess_neutral_vs_benchmark = cumprod(1 + excess_neutral_vs_benchmark) -
+      1,
     cum_excess_neutral_vs_target = cumprod(1 + excess_neutral_vs_target) - 1
   )
 
 # Diagnostics ----
 
 message(paste0("\nTotal observations: ", nrow(neutral_returns)))
-message(paste0("Date range: ", min(neutral_returns$date), " to ", max(neutral_returns$date)))
+message(paste0(
+  "Date range: ",
+  min(neutral_returns$date),
+  " to ",
+  max(neutral_returns$date)
+))
 
 exposure_stats <- neutral_returns %>%
   dplyr::summarise(
@@ -273,25 +322,94 @@ return_stats <- neutral_returns %>%
   )
 
 message("\nDaily return statistics:")
-message(paste0("  ", target_ticker, " mean: ", round(return_stats$mean_target * 252 * 100, 2), "% ann."))
-message(paste0("  ", benchmark_ticker, " mean: ", round(return_stats$mean_benchmark * 252 * 100, 2), "% ann."))
-message(paste0("  Neutral mean: ", round(return_stats$mean_neutral * 252 * 100, 2), "% ann."))
-message(paste0("  ", target_ticker, " vol: ", round(return_stats$sd_target * sqrt(252) * 100, 2), "% ann."))
-message(paste0("  ", benchmark_ticker, " vol: ", round(return_stats$sd_benchmark * sqrt(252) * 100, 2), "% ann."))
-message(paste0("  Neutral vol: ", round(return_stats$sd_neutral * sqrt(252) * 100, 2), "% ann."))
+message(paste0(
+  "  ",
+  target_ticker,
+  " mean: ",
+  round(return_stats$mean_target * 252 * 100, 2),
+  "% ann."
+))
+message(paste0(
+  "  ",
+  benchmark_ticker,
+  " mean: ",
+  round(return_stats$mean_benchmark * 252 * 100, 2),
+  "% ann."
+))
+message(paste0(
+  "  Neutral mean: ",
+  round(return_stats$mean_neutral * 252 * 100, 2),
+  "% ann."
+))
+message(paste0(
+  "  ",
+  target_ticker,
+  " vol: ",
+  round(return_stats$sd_target * sqrt(252) * 100, 2),
+  "% ann."
+))
+message(paste0(
+  "  ",
+  benchmark_ticker,
+  " vol: ",
+  round(return_stats$sd_benchmark * sqrt(252) * 100, 2),
+  "% ann."
+))
+message(paste0(
+  "  Neutral vol: ",
+  round(return_stats$sd_neutral * sqrt(252) * 100, 2),
+  "% ann."
+))
 
 final_values <- cumulative_returns %>%
   dplyr::slice_tail(n = 1) %>%
-  dplyr::select(date, cum_target, cum_benchmark, cum_neutral, cum_excess_target_vs_benchmark, cum_excess_neutral_vs_benchmark)
+  dplyr::select(
+    date,
+    cum_target,
+    cum_benchmark,
+    cum_neutral,
+    cum_excess_target_vs_benchmark,
+    cum_excess_neutral_vs_benchmark
+  )
 
 message("\nFinal cumulative returns:")
-message(paste0("  ", target_ticker, ": ", round(final_values$cum_target * 100, 2), "%"))
-message(paste0("  ", benchmark_ticker, ": ", round(final_values$cum_benchmark * 100, 2), "%"))
-message(paste0("  Factor-Neutral: ", round(final_values$cum_neutral * 100, 2), "%"))
+message(paste0(
+  "  ",
+  target_ticker,
+  ": ",
+  round(final_values$cum_target * 100, 2),
+  "%"
+))
+message(paste0(
+  "  ",
+  benchmark_ticker,
+  ": ",
+  round(final_values$cum_benchmark * 100, 2),
+  "%"
+))
+message(paste0(
+  "  Factor-Neutral: ",
+  round(final_values$cum_neutral * 100, 2),
+  "%"
+))
 
 message("\nFinal cumulative excess returns:")
-message(paste0("  ", target_ticker, " vs ", benchmark_ticker, ": ", round(final_values$cum_excess_target_vs_benchmark * 100, 2), "%"))
-message(paste0("  Neutral vs ", benchmark_ticker, ": ", round(final_values$cum_excess_neutral_vs_benchmark * 100, 2), "%"))
+message(paste0(
+  "  ",
+  target_ticker,
+  " vs ",
+  benchmark_ticker,
+  ": ",
+  round(final_values$cum_excess_target_vs_benchmark * 100, 2),
+  "%"
+))
+message(paste0(
+  "  Neutral vs ",
+  benchmark_ticker,
+  ": ",
+  round(final_values$cum_excess_neutral_vs_benchmark * 100, 2),
+  "%"
+))
 
 # Dataviz ----
 
@@ -332,8 +450,18 @@ p1 <- cumulative_returns %>%
     )
   ) +
   labs(
-    title = paste0("Factor-Neutral ", target_ticker, ": Isolating Idiosyncratic Effects"),
-    subtitle = paste0("100% ", target_ticker, " + factor hedges to neutralize tilts vs ", benchmark_ticker, " (rolling 1-year)"),
+    title = paste0(
+      "Factor-Neutral ",
+      target_ticker,
+      ": Isolating Idiosyncratic Effects"
+    ),
+    subtitle = paste0(
+      "100% ",
+      target_ticker,
+      " + factor hedges to neutralize tilts vs ",
+      benchmark_ticker,
+      " (rolling 1-year)"
+    ),
     x = "",
     y = "Cumulative Return",
     color = "",
@@ -344,7 +472,11 @@ p1 <- cumulative_returns %>%
     panel.grid.minor = element_blank(),
     plot.title = element_text(face = "bold", size = 14),
     plot.subtitle = element_text(size = 11, margin = margin(b = 10)),
-    plot.caption = element_text(size = 8, color = "grey40", margin = margin(t = 10)),
+    plot.caption = element_text(
+      size = 8,
+      color = "grey40",
+      margin = margin(t = 10)
+    ),
     legend.position = "bottom"
   )
 
@@ -367,8 +499,18 @@ p2 <- neutral_returns %>%
   ) %>%
   ggplot(aes(x = date, y = exposure, color = exposure_type)) +
   geom_line(linewidth = 0.6) +
-  geom_hline(yintercept = 1.0, color = "grey30", linewidth = 0.3, linetype = "dashed") +
-  geom_hline(yintercept = max_gross_exposure, color = "grey30", linewidth = 0.3, linetype = "dotted") +
+  geom_hline(
+    yintercept = 1.0,
+    color = "grey30",
+    linewidth = 0.3,
+    linetype = "dashed"
+  ) +
+  geom_hline(
+    yintercept = max_gross_exposure,
+    color = "grey30",
+    linewidth = 0.3,
+    linetype = "dotted"
+  ) +
   scale_x_date(
     date_breaks = "1 year",
     date_labels = "%Y"
@@ -384,7 +526,11 @@ p2 <- neutral_returns %>%
   ) +
   labs(
     title = paste0("Factor-Neutral ", target_ticker, ": Leverage and Exposure"),
-    subtitle = paste0("Gross exposure capped at ", scales::percent(max_gross_exposure), " • Net exposure stays near 100%"),
+    subtitle = paste0(
+      "Gross exposure capped at ",
+      scales::percent(max_gross_exposure),
+      " • Net exposure stays near 100%"
+    ),
     x = "",
     y = "Exposure",
     color = "",
@@ -395,7 +541,11 @@ p2 <- neutral_returns %>%
     panel.grid.minor = element_blank(),
     plot.title = element_text(face = "bold", size = 14),
     plot.subtitle = element_text(size = 11, margin = margin(b = 10)),
-    plot.caption = element_text(size = 8, color = "grey40", margin = margin(t = 10)),
+    plot.caption = element_text(
+      size = 8,
+      color = "grey40",
+      margin = margin(t = 10)
+    ),
     legend.position = "bottom"
   )
 
@@ -403,7 +553,12 @@ print(p2)
 
 # Chart 3: Excess Returns vs Benchmarks
 p3 <- cumulative_returns %>%
-  dplyr::select(date, cum_excess_neutral_vs_benchmark, cum_excess_neutral_vs_target, cum_excess_target_vs_benchmark) %>%
+  dplyr::select(
+    date,
+    cum_excess_neutral_vs_benchmark,
+    cum_excess_neutral_vs_target,
+    cum_excess_target_vs_benchmark
+  ) %>%
   dplyr::rename(
     neutral_vs_benchmark = cum_excess_neutral_vs_benchmark,
     neutral_vs_target = cum_excess_neutral_vs_target,
@@ -416,9 +571,16 @@ p3 <- cumulative_returns %>%
   ) %>%
   dplyr::mutate(
     comparison = dplyr::case_when(
-      comparison == "neutral_vs_benchmark" ~ paste0("Neutral vs ", benchmark_ticker),
+      comparison == "neutral_vs_benchmark" ~ paste0(
+        "Neutral vs ",
+        benchmark_ticker
+      ),
       comparison == "neutral_vs_target" ~ paste0("Neutral vs ", target_ticker),
-      comparison == "target_vs_benchmark" ~ paste0(target_ticker, " vs ", benchmark_ticker),
+      comparison == "target_vs_benchmark" ~ paste0(
+        target_ticker,
+        " vs ",
+        benchmark_ticker
+      ),
       TRUE ~ comparison
     )
   ) %>%
@@ -444,7 +606,13 @@ p3 <- cumulative_returns %>%
   ) +
   labs(
     title = "Excess Returns: Factor-Neutral vs Benchmarks",
-    subtitle = paste0("Neutral portfolio tracks close to ", benchmark_ticker, " (neutralized factors), differs from ", target_ticker, " (no factor tilts)"),
+    subtitle = paste0(
+      "Neutral portfolio tracks close to ",
+      benchmark_ticker,
+      " (neutralized factors), differs from ",
+      target_ticker,
+      " (no factor tilts)"
+    ),
     x = "",
     y = "Cumulative Excess Return",
     color = "",
@@ -455,18 +623,32 @@ p3 <- cumulative_returns %>%
     panel.grid.minor = element_blank(),
     plot.title = element_text(face = "bold", size = 14),
     plot.subtitle = element_text(size = 11, margin = margin(b = 10)),
-    plot.caption = element_text(size = 8, color = "grey40", margin = margin(t = 10)),
+    plot.caption = element_text(
+      size = 8,
+      color = "grey40",
+      margin = margin(t = 10)
+    ),
     legend.position = "bottom"
   )
 
 print(p3)
 
 # Save charts
-if (save_images && !dir.exists("images")) dir.create("images")
+if (save_images && !dir.exists("images")) {
+  dir.create("images")
+}
 
-cumulative_file <- paste0("images/factor_neutral_", target_lower, "_cumulative_returns.svg")
+cumulative_file <- paste0(
+  "images/factor_neutral_",
+  target_lower,
+  "_cumulative_returns.svg"
+)
 exposure_file <- paste0("images/factor_neutral_", target_lower, "_exposure.svg")
-excess_file <- paste0("images/factor_neutral_", target_lower, "_excess_returns.svg")
+excess_file <- paste0(
+  "images/factor_neutral_",
+  target_lower,
+  "_excess_returns.svg"
+)
 
 if (save_images) {
   ggsave(

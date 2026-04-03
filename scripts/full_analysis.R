@@ -11,20 +11,20 @@ roll_window <- 252L
 save_images <- TRUE
 
 # Date range filtering (set to NULL to use all available data)
-start_date <- "2016-01-01"  # e.g., "2020-01-01"
-end_date <- NULL    # e.g., "2024-12-31"
+start_date <- "2016-01-01" # e.g., "2020-01-01"
+end_date <- NULL # e.g., "2024-12-31"
 
 # Complete ticker list (union of all scripts)
 tickers <- c(
-  target_ticker,    # Target fund
+  target_ticker, # Target fund
   benchmark_ticker, # Benchmark
-  "IWD",            # R1000V
-  "IWF",            # R1000G
-  "IWN",            # R2000V
-  "IWO",            # R2000G
-  "MTUM",           # Momo
-  "USMV",           # MinVol
-  "QUAL"            # Quality
+  "IWD", # R1000V
+  "IWF", # R1000G
+  "IWN", # R2000V
+  "IWO", # R2000G
+  "MTUM", # Momo
+  "USMV", # MinVol
+  "QUAL" # Quality
 )
 
 factor_cols <- c("IWD", "IWF", "IWN", "IWO", "MTUM", "USMV", "QUAL")
@@ -48,12 +48,12 @@ all_data <- fetch_adjusted_prices(tickers)
 
 message("\nPre-processing data...")
 
-all_data <- all_data %>% 
-  dplyr::arrange(ticker, date) %>% 
-  dplyr::group_by(ticker) %>% 
-  dplyr::add_count() %>% 
-  dplyr::ungroup() %>% 
-  dplyr::filter(n > roll_window) %>% 
+all_data <- all_data %>%
+  dplyr::arrange(ticker, date) %>%
+  dplyr::group_by(ticker) %>%
+  dplyr::add_count() %>%
+  dplyr::ungroup() %>%
+  dplyr::filter(n > roll_window) %>%
   dplyr::select(-n)
 
 return_data <- calculate_log_returns(all_data)
@@ -78,7 +78,9 @@ library(ggrepel)
 library(scales)
 
 # Create images directory if needed
-if (save_images && !dir.exists("images")) dir.create("images")
+if (save_images && !dir.exists("images")) {
+  dir.create("images")
+}
 
 # ============================================================================
 # ANALYSIS 1: ROLLING BETA
@@ -216,35 +218,52 @@ factor_decomposition <- regression_data_target %>%
 # Visualization 2: Factor Decomposition
 viz_data_decomp <- factor_decomposition %>%
   tidyr::pivot_longer(
-    cols = c(large_value, large_growth, small_value, small_growth, 
-            momentum, min_vol, quality),
+    cols = c(
+      large_value,
+      large_growth,
+      small_value,
+      small_growth,
+      momentum,
+      min_vol,
+      quality
+    ),
     names_to = "factor",
     values_to = "weight"
   ) %>%
   dplyr::mutate(
     factor = dplyr::case_when(
-      factor == "large_value"   ~ "Large Value",
-      factor == "large_growth"  ~ "Large Growth",
-      factor == "small_value"   ~ "Small Value",
-      factor == "small_growth"  ~ "Small Growth",
-      factor == "momentum"      ~ "Momentum",
-      factor == "min_vol"       ~ "Min Vol",
-      factor == "quality"       ~ "Quality",
-      TRUE                      ~ factor
+      factor == "large_value" ~ "Large Value",
+      factor == "large_growth" ~ "Large Growth",
+      factor == "small_value" ~ "Small Value",
+      factor == "small_growth" ~ "Small Growth",
+      factor == "momentum" ~ "Momentum",
+      factor == "min_vol" ~ "Min Vol",
+      factor == "quality" ~ "Quality",
+      TRUE ~ factor
     ),
-    factor = factor(factor, levels = c(
-      "Large Value", "Large Growth", "Small Value", "Small Growth",
-      "Momentum", "Min Vol", "Quality"
-    ))
+    factor = factor(
+      factor,
+      levels = c(
+        "Large Value",
+        "Large Growth",
+        "Small Value",
+        "Small Growth",
+        "Momentum",
+        "Min Vol",
+        "Quality"
+      )
+    )
   ) %>%
   dplyr::arrange(date, factor)
 
 p2 <- viz_data_decomp %>%
   ggplot(aes(x = date, y = weight, fill = factor)) +
-  geom_area(position = position_stack(reverse = FALSE), 
-            alpha = 0.85, 
-            size = 0,
-            na.rm = TRUE) +
+  geom_area(
+    position = position_stack(reverse = FALSE),
+    alpha = 0.85,
+    size = 0,
+    na.rm = TRUE
+  ) +
   scale_x_date(
     date_breaks = "1 year",
     date_labels = "%Y",
@@ -258,14 +277,18 @@ p2 <- viz_data_decomp %>%
     oob = scales::squish
   ) +
   scale_fill_brewer(
-    type = "qual", 
+    type = "qual",
     palette = "Set3",
     guide = guide_legend(reverse = TRUE)
   ) +
   labs(
-    title = paste0("Rolling 1-Year Multi-Factor Decomposition of ", target_ticker),
+    title = paste0(
+      "Rolling 1-Year Multi-Factor Decomposition of ",
+      target_ticker
+    ),
     subtitle = "Constrained weights (non-negative, sum to 1) - 7 Factor Model",
-    x = "", y = "Weight",
+    x = "",
+    y = "Weight",
     caption = "Data: alphavantage • Chart: brrymtnc"
   ) +
   theme_minimal(base_size = 12) +
@@ -323,7 +346,11 @@ benchmark_regression_data <- benchmark_returns %>%
   dplyr::filter(complete.cases(.))
 
 # Rolling Multi-Factor Constrained Regression - Target
-message(paste0("Running ", target_ticker, " constrained regression (with intercept)..."))
+message(paste0(
+  "Running ",
+  target_ticker,
+  " constrained regression (with intercept)..."
+))
 
 target_decomposition <- target_regression_data %>%
   dplyr::arrange(date) %>%
@@ -346,13 +373,24 @@ target_decomposition <- target_regression_data %>%
     quality = roll_res[[1]]$coefficients[, "QUAL"]
   ) %>%
   dplyr::select(
-    date, alpha, large_value, large_growth, small_value, small_growth,
-    momentum, min_vol, quality
+    date,
+    alpha,
+    large_value,
+    large_growth,
+    small_value,
+    small_growth,
+    momentum,
+    min_vol,
+    quality
   ) %>%
   dplyr::filter(!is.na(alpha))
 
 # Rolling Multi-Factor Constrained Regression - Benchmark
-message(paste0("Running ", benchmark_ticker, " constrained regression (with intercept)..."))
+message(paste0(
+  "Running ",
+  benchmark_ticker,
+  " constrained regression (with intercept)..."
+))
 
 benchmark_decomposition <- benchmark_regression_data %>%
   dplyr::arrange(date) %>%
@@ -375,8 +413,15 @@ benchmark_decomposition <- benchmark_regression_data %>%
     quality = roll_res[[1]]$coefficients[, "QUAL"]
   ) %>%
   dplyr::select(
-    date, alpha, large_value, large_growth, small_value, small_growth,
-    momentum, min_vol, quality
+    date,
+    alpha,
+    large_value,
+    large_growth,
+    small_value,
+    small_growth,
+    momentum,
+    min_vol,
+    quality
   ) %>%
   dplyr::filter(!is.na(alpha))
 
@@ -398,8 +443,15 @@ factor_differences <- target_decomposition %>%
     alpha_diff = alpha_target - alpha_benchmark
   ) %>%
   dplyr::select(
-    date, large_value_diff, large_growth_diff, small_value_diff,
-    small_growth_diff, momentum_diff, min_vol_diff, quality_diff, alpha_diff
+    date,
+    large_value_diff,
+    large_growth_diff,
+    small_value_diff,
+    small_growth_diff,
+    momentum_diff,
+    min_vol_diff,
+    quality_diff,
+    alpha_diff
   )
 
 # Materiality Filter
@@ -417,22 +469,47 @@ max_differences <- factor_differences %>%
   )
 
 material_factors <- c()
-if (max_differences$large_value_max >= materiality_threshold) material_factors <- c(material_factors, "large_value_diff")
-if (max_differences$large_growth_max >= materiality_threshold) material_factors <- c(material_factors, "large_growth_diff")
-if (max_differences$small_value_max >= materiality_threshold) material_factors <- c(material_factors, "small_value_diff")
-if (max_differences$small_growth_max >= materiality_threshold) material_factors <- c(material_factors, "small_growth_diff")
-if (max_differences$momentum_max >= materiality_threshold) material_factors <- c(material_factors, "momentum_diff")
-if (max_differences$min_vol_max >= materiality_threshold) material_factors <- c(material_factors, "min_vol_diff")
-if (max_differences$quality_max >= materiality_threshold) material_factors <- c(material_factors, "quality_diff")
+if (max_differences$large_value_max >= materiality_threshold) {
+  material_factors <- c(material_factors, "large_value_diff")
+}
+if (max_differences$large_growth_max >= materiality_threshold) {
+  material_factors <- c(material_factors, "large_growth_diff")
+}
+if (max_differences$small_value_max >= materiality_threshold) {
+  material_factors <- c(material_factors, "small_value_diff")
+}
+if (max_differences$small_growth_max >= materiality_threshold) {
+  material_factors <- c(material_factors, "small_growth_diff")
+}
+if (max_differences$momentum_max >= materiality_threshold) {
+  material_factors <- c(material_factors, "momentum_diff")
+}
+if (max_differences$min_vol_max >= materiality_threshold) {
+  material_factors <- c(material_factors, "min_vol_diff")
+}
+if (max_differences$quality_max >= materiality_threshold) {
+  material_factors <- c(material_factors, "quality_diff")
+}
 
-message(paste0("Factors exceeding ", materiality_threshold * 100, "% materiality threshold: ", 
-               paste(material_factors, collapse = ", ")))
+message(paste0(
+  "Factors exceeding ",
+  materiality_threshold * 100,
+  "% materiality threshold: ",
+  paste(material_factors, collapse = ", ")
+))
 
 # Visualization 3: Factor Differences
 viz_data_diff <- factor_differences %>%
   tidyr::pivot_longer(
-    cols = c(large_value_diff, large_growth_diff, small_value_diff,
-            small_growth_diff, momentum_diff, min_vol_diff, quality_diff),
+    cols = c(
+      large_value_diff,
+      large_growth_diff,
+      small_value_diff,
+      small_growth_diff,
+      momentum_diff,
+      min_vol_diff,
+      quality_diff
+    ),
     names_to = "factor",
     values_to = "difference"
   ) %>%
@@ -498,8 +575,19 @@ p3 <- viz_data_diff %>%
     guide = "none"
   ) +
   labs(
-    title = paste0(target_ticker, " vs ", benchmark_ticker, ": Factor Loading Differences Over Time"),
-    subtitle = paste0("Rolling 1-year constrained regression (", target_ticker, " loading - ", benchmark_ticker, " loading)"),
+    title = paste0(
+      target_ticker,
+      " vs ",
+      benchmark_ticker,
+      ": Factor Loading Differences Over Time"
+    ),
+    subtitle = paste0(
+      "Rolling 1-year constrained regression (",
+      target_ticker,
+      " loading - ",
+      benchmark_ticker,
+      " loading)"
+    ),
     x = "",
     y = "Loading Difference",
     caption = "Data: alphavantage • Chart: brrymtnc"
@@ -512,7 +600,11 @@ p3 <- viz_data_diff %>%
     panel.grid.minor.y = element_blank(),
     plot.title = element_text(face = "bold", size = 14),
     plot.subtitle = element_text(size = 11, margin = margin(b = 10)),
-    plot.caption = element_text(size = 8, color = "grey40", margin = margin(t = 10)),
+    plot.caption = element_text(
+      size = 8,
+      color = "grey40",
+      margin = margin(t = 10)
+    ),
     axis.title.y = element_text(size = 10),
     strip.text = element_text(face = "bold", size = 10, hjust = 0.5),
     strip.background = element_blank(),
@@ -520,7 +612,13 @@ p3 <- viz_data_diff %>%
     axis.text.x = element_text(angle = 0)
   )
 
-diff_file <- paste0("images/", target_lower, "_", benchmark_lower, "_factor_differences.svg")
+diff_file <- paste0(
+  "images/",
+  target_lower,
+  "_",
+  benchmark_lower,
+  "_factor_differences.svg"
+)
 if (save_images) {
   ggsave(diff_file, plot = p3, width = 12, height = 10, dpi = 320)
   message(paste0("✓ Factor differences chart saved to ", diff_file))
@@ -536,7 +634,11 @@ message("ANALYSIS 4: FACTOR ATTRIBUTION")
 message("========================================")
 
 # Run constrained regressions WITHOUT intercept for attribution
-message(paste0("Running ", target_ticker, " constrained regression (no intercept)..."))
+message(paste0(
+  "Running ",
+  target_ticker,
+  " constrained regression (no intercept)..."
+))
 
 target_weights <- target_regression_data %>%
   dplyr::arrange(date) %>%
@@ -560,7 +662,11 @@ target_weights <- target_regression_data %>%
   dplyr::select(date, IWD, IWF, IWN, IWO, MTUM, USMV, QUAL) %>%
   dplyr::filter(!is.na(IWD))
 
-message(paste0("Running ", benchmark_ticker, " constrained regression (no intercept)..."))
+message(paste0(
+  "Running ",
+  benchmark_ticker,
+  " constrained regression (no intercept)..."
+))
 
 benchmark_weights <- benchmark_regression_data %>%
   dplyr::arrange(date) %>%
@@ -611,8 +717,16 @@ message("Calculating cumulative attribution...")
 cumulative_attribution <- calculate_cumulative_attribution(daily_attribution)
 
 # Diagnostics
-message(paste0("\nTotal observations in attribution: ", nrow(daily_attribution)))
-message(paste0("Date range: ", min(daily_attribution$date), " to ", max(daily_attribution$date)))
+message(paste0(
+  "\nTotal observations in attribution: ",
+  nrow(daily_attribution)
+))
+message(paste0(
+  "Date range: ",
+  min(daily_attribution$date),
+  " to ",
+  max(daily_attribution$date)
+))
 
 # Check attribution identity
 identity_check <- daily_attribution %>%
@@ -622,10 +736,15 @@ identity_check <- daily_attribution %>%
   )
 
 max_diff <- max(abs(identity_check$difference), na.rm = TRUE)
-message(paste0("Attribution identity check (max absolute difference): ", format(max_diff, scientific = FALSE)))
+message(paste0(
+  "Attribution identity check (max absolute difference): ",
+  format(max_diff, scientific = FALSE)
+))
 
 if (max_diff > 1e-10) {
-  message("WARNING: Attribution components do not sum to excess return within tolerance")
+  message(
+    "WARNING: Attribution components do not sum to excess return within tolerance"
+  )
 } else {
   message("✓ Attribution identity holds: factor + selection = excess")
 }
@@ -633,7 +752,12 @@ if (max_diff > 1e-10) {
 # Final cumulative values
 final_values <- cumulative_attribution %>%
   dplyr::slice_tail(n = 1) %>%
-  dplyr::select(date, cumulative_excess, cumulative_factor, cumulative_selection)
+  dplyr::select(
+    date,
+    cumulative_excess,
+    cumulative_factor,
+    cumulative_selection
+  )
 
 message("\nFinal cumulative attribution:")
 print(final_values)
@@ -699,7 +823,12 @@ p4 <- viz_cumulative %>%
     )
   ) +
   labs(
-    title = paste0(target_ticker, " vs ", benchmark_ticker, ": Cumulative Value-Add Attribution"),
+    title = paste0(
+      target_ticker,
+      " vs ",
+      benchmark_ticker,
+      ": Cumulative Value-Add Attribution"
+    ),
     subtitle = "Decomposing excess returns into factor tilt effects vs idiosyncratic effects (rolling 1-year)",
     x = "",
     y = "Cumulative Value-Add",
@@ -712,11 +841,21 @@ p4 <- viz_cumulative %>%
     panel.grid.minor = element_blank(),
     plot.title = element_text(face = "bold", size = 14),
     plot.subtitle = element_text(size = 11, margin = margin(b = 10)),
-    plot.caption = element_text(size = 8, color = "grey40", margin = margin(t = 10)),
+    plot.caption = element_text(
+      size = 8,
+      color = "grey40",
+      margin = margin(t = 10)
+    ),
     legend.position = "bottom"
   )
 
-attr_file <- paste0("images/", target_lower, "_", benchmark_lower, "_cumulative_attribution.svg")
+attr_file <- paste0(
+  "images/",
+  target_lower,
+  "_",
+  benchmark_lower,
+  "_cumulative_attribution.svg"
+)
 if (save_images) {
   ggsave(attr_file, plot = p4, width = 12, height = 7, dpi = 320)
   message(paste0("✓ Cumulative attribution chart saved to ", attr_file))

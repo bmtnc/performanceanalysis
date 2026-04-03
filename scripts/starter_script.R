@@ -23,12 +23,12 @@ all_data <- fetch_adjusted_prices(tickers)
 # note - this is a long-form dataframe indexed by `date` and `ticker` and the values are `adjusted_close`
 # here we filter for sufficient price history
 
-all_data <- all_data %>% 
-  dplyr::arrange(ticker, date) %>% 
-  dplyr::group_by(ticker) %>% 
-  dplyr::add_count() %>% 
-  dplyr::ungroup() %>% 
-  dplyr::filter(n > roll_window) %>% 
+all_data <- all_data %>%
+  dplyr::arrange(ticker, date) %>%
+  dplyr::group_by(ticker) %>%
+  dplyr::add_count() %>%
+  dplyr::ungroup() %>%
+  dplyr::filter(n > roll_window) %>%
   dplyr::select(-n)
 
 return_data <- calculate_log_returns(all_data)
@@ -79,9 +79,9 @@ p <- simple_regression %>%
   geom_text_repel(
     data = . %>% tail(1),
     aes(label = round(beta, 2)),
-    nudge_x    = 30,
-    direction  = "y",
-    vjust      = 2,
+    nudge_x = 30,
+    direction = "y",
+    vjust = 2,
     # hjust      = 1,
     segment.color = NA
   ) +
@@ -89,30 +89,32 @@ p <- simple_regression %>%
     date_breaks = "1 year",
     date_labels = "%Y"
   ) +
-scale_y_continuous(
+  scale_y_continuous(
     limits = c(0.8, 2.25),
     breaks = seq(0.5, 2.25, by = 0.25)
-  ) + 
-labs(
-    title    = "Rolling Beta for $ARKK",
+  ) +
+  labs(
+    title = "Rolling Beta for $ARKK",
     subtitle = "vs. Russell Midcap Index ($IWR)",
-    x        = "",
-    y        = "Beta",
-    caption  = "Data: alphavantage • Chart: brrymtnc"
+    x = "",
+    y = "Beta",
+    caption = "Data: alphavantage • Chart: brrymtnc"
   ) +
   theme_minimal(base_size = 12) +
   theme(
-    panel.grid.major.x    = element_blank(),   # drop vertical grid
-    panel.grid.minor.x    = element_blank(),
-    panel.grid.major.y    = element_line(color = "grey80"),
-    panel.grid.minor.y    = element_blank(),
-    plot.title            = element_text(face = "bold", size = 14),
-    plot.subtitle         = element_text(size = 12),
-    axis.title            = element_text(size = 11),
-    plot.caption          = element_text(size = 8, color = "grey40")
+    panel.grid.major.x = element_blank(), # drop vertical grid
+    panel.grid.minor.x = element_blank(),
+    panel.grid.major.y = element_line(color = "grey80"),
+    panel.grid.minor.y = element_blank(),
+    plot.title = element_text(face = "bold", size = 14),
+    plot.subtitle = element_text(size = 12),
+    axis.title = element_text(size = 11),
+    plot.caption = element_text(size = 8, color = "grey40")
   )
 
-if (!dir.exists("images")) dir.create("images")
+if (!dir.exists("images")) {
+  dir.create("images")
+}
 ggsave("images/arkk_beta.svg", plot = p, width = 8, height = 5, dpi = 320)
 
 print(p)

@@ -13,8 +13,23 @@ library(slider)
 fredr_set_key(Sys.getenv("FRED_API_KEY"))
 
 # Country definitions: 2-letter code -> FRED series IDs
-countries <- c("US", "GB", "DE", "JP", "FR", "CA", "AU", "IT", "NL", "SE",
-               "BE", "CH", "DK", "NO", "NZ")
+countries <- c(
+  "US",
+  "GB",
+  "DE",
+  "JP",
+  "FR",
+  "CA",
+  "AU",
+  "IT",
+  "NL",
+  "SE",
+  "BE",
+  "CH",
+  "DK",
+  "NO",
+  "NZ"
+)
 
 yield_10y_series <- setNames(
   paste0("IRLTLT01", countries, "M156N"),
@@ -28,9 +43,21 @@ rate_3m_series <- setNames(
 
 # CPI uses 3-letter ISO codes in FRED; Australia is quarterly
 iso3_map <- c(
-  US = "USA", GB = "GBR", DE = "DEU", JP = "JPN", FR = "FRA",
-  CA = "CAN", AU = "AUS", IT = "ITA", NL = "NLD", SE = "SWE",
-  BE = "BEL", CH = "CHE", DK = "DNK", NO = "NOR", NZ = "NZL"
+  US = "USA",
+  GB = "GBR",
+  DE = "DEU",
+  JP = "JPN",
+  FR = "FRA",
+  CA = "CAN",
+  AU = "AUS",
+  IT = "ITA",
+  NL = "NLD",
+  SE = "SWE",
+  BE = "BEL",
+  CH = "CHE",
+  DK = "DNK",
+  NO = "NOR",
+  NZ = "NZL"
 )
 
 cpi_series <- setNames(
@@ -42,8 +69,8 @@ cpi_series["AU"] <- "AUSCPIALLQINMEI"
 
 output_dir <- "data/fred"
 output_paths <- list(
-  raw_yields  = file.path(output_dir, "fi_raw_yields.rds"),
-  raw_cpi     = file.path(output_dir, "fi_raw_cpi.rds"),
+  raw_yields = file.path(output_dir, "fi_raw_yields.rds"),
+  raw_cpi = file.path(output_dir, "fi_raw_cpi.rds"),
   bond_returns = file.path(output_dir, "fi_bond_returns.rds"),
   factor_signals = file.path(output_dir, "fi_factor_signals.rds"),
   factor_returns = file.path(output_dir, "fi_factor_returns.rds")
@@ -55,9 +82,9 @@ momentum_lookback <- 12L
 momentum_skip <- 1L
 beta_window <- 36L
 beta_min_obs <- 24L
-beta_shrink_ols <- 0.6       # Vasicek shrinkage weight on OLS beta (Fix 3)
-beta_shrink_prior <- 1.0     # Vasicek prior beta (Fix 3)
-min_countries <- 8L          # Min countries with non-missing signal per month (Fix 4)
+beta_shrink_ols <- 0.6 # Vasicek shrinkage weight on OLS beta (Fix 3)
+beta_shrink_prior <- 1.0 # Vasicek prior beta (Fix 3)
+min_countries <- 8L # Min countries with non-missing signal per month (Fix 4)
 api_sleep <- 0.5
 
 # Helper: fetch a single FRED series safely
@@ -104,7 +131,7 @@ yields_panel <- dplyr::bind_rows(yield_raw) |>
 yields_panel <- yields_panel |>
   dplyr::mutate(
     yield_10y = yield_10y / 100,
-    rate_3m   = rate_3m / 100
+    rate_3m = rate_3m / 100
   )
 
 # 2. Fetch CPI data ----
@@ -131,15 +158,15 @@ if (nrow(au_cpi) > 0) {
   )
   au_cpi_monthly <- au_months |>
     dplyr::left_join(au_cpi, by = "date") |>
-    dplyr::mutate(
-      country = "AU",
-      # Forward-fill quarterly CPI to monthly (base R, no tidyr dependency)
-      cpi = {
-        idx <- which(!is.na(cpi))
-        if (length(idx) > 0) cpi[idx[findInterval(seq_along(cpi), idx, left.open = FALSE)]]
-        else cpi
+    dplyr::mutate(country = "AU", # Forward-fill quarterly CPI to monthly (base R, no tidyr dependency)
+    cpi = {
+      idx <- which(!is.na(cpi))
+      if (length(idx) > 0) {
+        cpi[idx[findInterval(seq_along(cpi), idx, left.open = FALSE)]]
+      } else {
+        cpi
       }
-    )
+    })
 
   cpi_panel <- cpi_panel |>
     dplyr::filter(country != "AU") |>
@@ -148,7 +175,9 @@ if (nrow(au_cpi) > 0) {
 
 # 3. Save raw data ----
 
-if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
+if (!dir.exists(output_dir)) {
+  dir.create(output_dir, recursive = TRUE)
+}
 saveRDS(yields_panel, output_paths$raw_yields)
 saveRDS(cpi_panel, output_paths$raw_cpi)
 message("Saved raw yields and CPI.")
@@ -170,11 +199,12 @@ bond_returns <- yields_panel |>
     # At month end: reprice at y_t with remaining maturity = 10 - 1/12 years
     # Guard against zero/negative yields: floor at 0.1% for repricing
     y_start = pmax(yield_lag, 0.001),
-    y_end   = pmax(yield_10y, 0.001),
-    remaining = 2 * (10 - 1/12),  # semi-annual periods remaining
+    y_end = pmax(yield_10y, 0.001),
+    remaining = 2 * (10 - 1 / 12), # semi-annual periods remaining
     bond_return = (y_start / 12) +
       (y_start / y_end) * (1 - 1 / (1 + y_end / 2)^remaining) +
-      1 / (1 + y_end / 2)^remaining - 1,
+      1 / (1 + y_end / 2)^remaining -
+      1,
     # Modified duration (for reference / diagnostics, not used in return calc)
     d_mac = (1 + y_start / 2) / y_start * (1 - 1 / (1 + y_start / 2)^20),
     d_mod = d_mac / (1 + y_start / 2)
@@ -220,7 +250,8 @@ mom_signals <- bond_returns |>
       .before = momentum_lookback,
       .after = -momentum_skip,
       .complete = TRUE
-    ) - 1
+    ) -
+      1
   ) |>
   dplyr::ungroup() |>
   dplyr::filter(!is.na(cum_ret_12_1)) |>
@@ -242,7 +273,9 @@ beta_data <- bond_returns |>
       .x = bond_return,
       .y = r_mkt,
       .f = function(r, m) {
-        if (sum(!is.na(r) & !is.na(m)) < beta_min_obs) return(NA_real_)
+        if (sum(!is.na(r) & !is.na(m)) < beta_min_obs) {
+          return(NA_real_)
+        }
         fit <- lm(r ~ m)
         unname(coef(fit)[2])
       },
@@ -257,9 +290,16 @@ beta_data <- bond_returns |>
 defensive_signals <- beta_data |>
   dplyr::filter(!is.na(beta)) |>
   dplyr::mutate(
-    beta_shrunk = beta_shrink_ols * beta + (1 - beta_shrink_ols) * beta_shrink_prior
+    beta_shrunk = beta_shrink_ols *
+      beta +
+      (1 - beta_shrink_ols) * beta_shrink_prior
   ) |>
-  dplyr::transmute(date, country, defensive = -beta_shrunk, beta_raw = beta_shrunk)
+  dplyr::transmute(
+    date,
+    country,
+    defensive = -beta_shrunk,
+    beta_raw = beta_shrunk
+  )
 
 # Combine all signals
 all_signals <- carry_signals |>
@@ -313,7 +353,7 @@ compute_ls_factor <- function(signals_df, signal_col, returns_df) {
     ) |>
     dplyr::summarise(
       factor_return = sum(w * bond_return),
-      n_long  = sum(w > 0),
+      n_long = sum(w > 0),
       n_short = sum(w < 0),
       .groups = "drop"
     ) |>
@@ -387,24 +427,30 @@ compute_bab_factor <- function(def_signals, returns_df, rf_df) {
       rf = dplyr::if_else(is.na(rf), 0, rf)
     ) |>
     dplyr::summarise(
-      r_low  = sum(w_within[side == "low"] * bond_return[side == "low"]),
+      r_low = sum(w_within[side == "low"] * bond_return[side == "low"]),
       r_high = sum(w_within[side == "high"] * bond_return[side == "high"]),
-      beta_low  = sum(w_within[side == "low"] * beta_raw[side == "low"]),
+      beta_low = sum(w_within[side == "low"] * beta_raw[side == "low"]),
       beta_high = sum(w_within[side == "high"] * beta_raw[side == "high"]),
       rf = dplyr::first(rf),
-      n_low  = sum(side == "low"),
+      n_low = sum(side == "low"),
       n_high = sum(side == "high"),
       .groups = "drop"
     ) |>
     dplyr::filter(n_low > 0, n_high > 0, beta_low > 0, beta_high > 0) |>
     dplyr::mutate(
       # Fix 2: BAB with excess returns: r_BAB = (1/beta_L)*(r_L - rf) - (1/beta_H)*(r_H - rf)
-      factor_return = (1 / beta_low) * (r_low - rf) - (1 / beta_high) * (r_high - rf)
+      factor_return = (1 / beta_low) *
+        (r_low - rf) -
+        (1 / beta_high) * (r_high - rf)
     ) |>
     dplyr::rename(date = ret_date)
 }
 
-bab_returns <- compute_bab_factor(defensive_signals, bond_returns, rf_monthly) |>
+bab_returns <- compute_bab_factor(
+  defensive_signals,
+  bond_returns,
+  rf_monthly
+) |>
   dplyr::transmute(date, defensive = factor_return)
 
 # Combine all factor returns
@@ -421,15 +467,33 @@ message("Saved factor returns.")
 
 message("\n=== Fixed Income Factor Data Summary ===")
 message("Countries: ", paste(countries, collapse = ", "))
-message("Yield panel: ", format(min(yields_panel$date)), " to ",
-        format(max(yields_panel$date)),
-        " (", dplyr::n_distinct(yields_panel$country), " countries)")
-message("CPI panel: ", format(min(cpi_panel$date)), " to ",
-        format(max(cpi_panel$date)),
-        " (", dplyr::n_distinct(cpi_panel$country), " countries)")
-message("Bond returns: ", format(min(bond_returns$date)), " to ",
-        format(max(bond_returns$date)),
-        " (", nrow(bond_returns), " obs)")
+message(
+  "Yield panel: ",
+  format(min(yields_panel$date)),
+  " to ",
+  format(max(yields_panel$date)),
+  " (",
+  dplyr::n_distinct(yields_panel$country),
+  " countries)"
+)
+message(
+  "CPI panel: ",
+  format(min(cpi_panel$date)),
+  " to ",
+  format(max(cpi_panel$date)),
+  " (",
+  dplyr::n_distinct(cpi_panel$country),
+  " countries)"
+)
+message(
+  "Bond returns: ",
+  format(min(bond_returns$date)),
+  " to ",
+  format(max(bond_returns$date)),
+  " (",
+  nrow(bond_returns),
+  " obs)"
+)
 
 message("\nFactor return date ranges and annualized means:")
 for (fac in c("carry", "value", "momentum", "defensive")) {
@@ -440,10 +504,15 @@ for (fac in c("carry", "value", "momentum", "defensive")) {
     ann_mean <- mean(col[valid]) * 12
     ann_sd <- sd(col[valid]) * sqrt(12)
     sr <- ann_mean / ann_sd
-    message(sprintf("  %-10s: %s to %s | ann. mean: %+.2f%% | ann. SD: %.2f%% | SR: %.2f",
-                    fac,
-                    format(min(dates)), format(max(dates)),
-                    ann_mean * 100, ann_sd * 100, sr))
+    message(sprintf(
+      "  %-10s: %s to %s | ann. mean: %+.2f%% | ann. SD: %.2f%% | SR: %.2f",
+      fac,
+      format(min(dates)),
+      format(max(dates)),
+      ann_mean * 100,
+      ann_sd * 100,
+      sr
+    ))
   }
 }
 

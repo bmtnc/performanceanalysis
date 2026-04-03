@@ -4,11 +4,11 @@ roll_window <- 252L
 
 tickers <- c(
   "ARKK", # ARK Innovation ETF (target)
-  "IWR",  # iShares Russell Midcap ETF (benchmark)
-  "IWD",  # R1000V
-  "IWF",  # R1000G
-  "IWN",  # R2000V
-  "IWO",  # R2000G
+  "IWR", # iShares Russell Midcap ETF (benchmark)
+  "IWD", # R1000V
+  "IWF", # R1000G
+  "IWN", # R2000V
+  "IWO", # R2000G
   "MTUM", # MSCI Momentum
   "USMV", # MSCI USA Min Vol
   "QUAL" # MSCI USA Quality
@@ -155,8 +155,16 @@ cumulative_attribution <- calculate_cumulative_attribution(daily_attribution)
 
 # Diagnostics ----
 
-message(paste0("\nTotal observations in attribution: ", nrow(daily_attribution)))
-message(paste0("Date range: ", min(daily_attribution$date), " to ", max(daily_attribution$date)))
+message(paste0(
+  "\nTotal observations in attribution: ",
+  nrow(daily_attribution)
+))
+message(paste0(
+  "Date range: ",
+  min(daily_attribution$date),
+  " to ",
+  max(daily_attribution$date)
+))
 
 # Check attribution identity: excess_return ≈ factor_contribution + selection_effect
 identity_check <- daily_attribution %>%
@@ -166,10 +174,15 @@ identity_check <- daily_attribution %>%
   )
 
 max_diff <- max(abs(identity_check$difference), na.rm = TRUE)
-message(paste0("\nAttribution identity check (max absolute difference): ", format(max_diff, scientific = FALSE)))
+message(paste0(
+  "\nAttribution identity check (max absolute difference): ",
+  format(max_diff, scientific = FALSE)
+))
 
 if (max_diff > 1e-10) {
-  message("WARNING: Attribution components do not sum to excess return within tolerance")
+  message(
+    "WARNING: Attribution components do not sum to excess return within tolerance"
+  )
 } else {
   message("✓ Attribution identity holds: factor + selection = excess")
 }
@@ -191,7 +204,12 @@ print(summary_stats)
 # Final cumulative values
 final_values <- cumulative_attribution %>%
   dplyr::slice_tail(n = 1) %>%
-  dplyr::select(date, cumulative_excess, cumulative_factor, cumulative_selection)
+  dplyr::select(
+    date,
+    cumulative_excess,
+    cumulative_factor,
+    cumulative_selection
+  )
 
 message("\nFinal cumulative attribution:")
 print(final_values)
@@ -275,14 +293,20 @@ p1 <- viz_cumulative %>%
     panel.grid.minor = element_blank(),
     plot.title = element_text(face = "bold", size = 14),
     plot.subtitle = element_text(size = 11, margin = margin(b = 10)),
-    plot.caption = element_text(size = 8, color = "grey40", margin = margin(t = 10)),
+    plot.caption = element_text(
+      size = 8,
+      color = "grey40",
+      margin = margin(t = 10)
+    ),
     legend.position = "bottom"
   )
 
 print(p1)
 
 # Save chart 1
-if (!dir.exists("images")) dir.create("images")
+if (!dir.exists("images")) {
+  dir.create("images")
+}
 ggsave(
   "images/arkk_iwr_cumulative_attribution.svg",
   plot = p1,

@@ -13,8 +13,8 @@ mom_file <- file.path(data_dir, "momentum_factors_monthly.xlsx")
 
 # Output files
 equity_factors_out <- file.path(data_dir, "aqr_equity_factors.rds")
-momentum_out      <- file.path(data_dir, "aqr_momentum_factors.rds")
-rf_out            <- file.path(data_dir, "aqr_risk_free_rate.rds")
+momentum_out <- file.path(data_dir, "aqr_momentum_factors.rds")
+rf_out <- file.path(data_dir, "aqr_risk_free_rate.rds")
 
 # Geographies to keep from the 30-column factor sheets
 keep_geos <- c("USA", "Global", "Global Ex USA", "Europe", "Pacific")
@@ -34,9 +34,9 @@ pivot_factor_long <- function(wide_df, value_col, geos = keep_geos) {
   # Stack geography columns into long format
   rows <- lapply(cols_to_keep, function(geo) {
     tibble::tibble(
-      date      = wide_df$DATE,
+      date = wide_df$DATE,
       geography = geo,
-      value     = wide_df[[geo]]
+      value = wide_df[[geo]]
     )
   })
   long_df <- do.call(rbind, rows)
@@ -79,7 +79,7 @@ smb <- pivot_factor_long(smb_raw, "smb")
 rf_raw <- readxl::read_excel(hml_file, sheet = "RF", skip = 18)
 rf <- tibble::tibble(
   date = as.Date(rf_raw$DATE, format = "%m/%d/%Y"),
-  rf   = rf_raw[["Risk Free Rate"]]
+  rf = rf_raw[["Risk Free Rate"]]
 )
 rf <- rf[!is.na(rf$date) & !is.na(rf$rf), ]
 
@@ -122,10 +122,15 @@ saveRDS(rf, rf_out)
 
 cat("\n--- Equity Factors Panel ---\n")
 cat(sprintf("  Rows: %d\n", nrow(equity_factors)))
-cat(sprintf("  Date range: %s to %s\n",
-            min(equity_factors$date), max(equity_factors$date)))
-cat(sprintf("  Geographies: %s\n",
-            paste(unique(equity_factors$geography), collapse = ", ")))
+cat(sprintf(
+  "  Date range: %s to %s\n",
+  min(equity_factors$date),
+  max(equity_factors$date)
+))
+cat(sprintf(
+  "  Geographies: %s\n",
+  paste(unique(equity_factors$geography), collapse = ", ")
+))
 cat("  Columns:", paste(names(equity_factors), collapse = ", "), "\n")
 cat("  Sample:\n")
 print(utils::head(equity_factors, 5))
@@ -142,5 +147,9 @@ cat(sprintf("  Date range: %s to %s\n", min(rf$date), max(rf$date)))
 cat("  Sample:\n")
 print(utils::head(rf, 5))
 
-cat(sprintf("\nSaved to:\n  %s\n  %s\n  %s\n",
-            equity_factors_out, momentum_out, rf_out))
+cat(sprintf(
+  "\nSaved to:\n  %s\n  %s\n  %s\n",
+  equity_factors_out,
+  momentum_out,
+  rf_out
+))
