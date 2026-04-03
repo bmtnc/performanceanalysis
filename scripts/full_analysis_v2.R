@@ -21,7 +21,7 @@ start_date <- NULL
 end_date <- NULL
 
 # Equity factor geography
-equity_geography <- "US"
+equity_geography <- "USA"
 
 # Toggle asset class factor groups
 use_fi_factors <- TRUE
