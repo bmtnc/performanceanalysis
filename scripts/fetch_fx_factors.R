@@ -52,6 +52,14 @@ rate_series <- c(
 # Japan splice series: CD rate has longer history (1979-2022)
 jpy_cd_series <- "IR3TCD01JPM156N"
 
+# US T-bill splice: The OECD 3M interbank series (IR3TIB01USM156N) has sporadic
+# gaps — notably April 2020 due to a publication delay during COVID. A single
+# missing USD rate NAs out carry signals for ALL 9 currencies that month, and
+# the lagged carry propagation also wipes out May 2020 excess returns entirely.
+# TB3MS (3M T-bill secondary market rate) is a close substitute at the same
+# tenor and fills these gaps.
+us_tbill_series <- "TB3MS"
+
 # FIX 2: CPI index-level series (OECD via FRED, 2015=100 base)
 # Must be INDEX LEVELS (values ~50-150), NOT month-over-month percentage changes.
 # Previous CPALTT01xxM657N series were percentage changes -- taking log() of
@@ -217,6 +225,29 @@ ir_raw <- ir_raw |>
   bind_rows(jpy_interbank) |>
   bind_rows(jpy_cd_only) |>
   arrange(currency, date)
+
+# Splice USD: fill gaps in OECD interbank with 3M T-bill secondary market rate
+cat("  Fetching US 3M T-bill rate for splice ...\n")
+us_tbill <- fetch_fred(us_tbill_series) |>
+  mutate(currency = "USD_TBILL")
+
+# Fill dates where the OECD series is missing OR has NA value
+usd_interbank <- ir_raw |> filter(currency == "USD")
+usd_missing_dates <- usd_interbank |>
+  filter(is.na(value)) |>
+  pull(date)
+usd_tbill_fill <- us_tbill |>
+  filter(date %in% usd_missing_dates | !date %in% usd_interbank$date) |>
+  mutate(currency = "USD", series_id = rate_series[["USD"]])
+
+if (nrow(usd_tbill_fill) > 0) {
+  cat(sprintf("  Splicing %d USD observations from TB3MS\n", nrow(usd_tbill_fill)))
+  # Remove NA rows being replaced, then add T-bill values
+  ir_raw <- ir_raw |>
+    filter(!(currency == "USD" & date %in% usd_tbill_fill$date)) |>
+    bind_rows(usd_tbill_fill) |>
+    arrange(currency, date)
+}
 
 cat(sprintf("  Pulled %d interest rate observations\n", nrow(ir_raw)))
 saveRDS(ir_raw, out_raw_rates)
