@@ -10,6 +10,7 @@ Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.2
 Imports:
+    avpipeline,
     dplyr,
     httr,
     jsonlite,
@@ -18,6 +19,8 @@ Imports:
     quadprog,
     roll,
     slider
+Remotes:
+    bmtnc/avpipeline
 Suggests: 
     testthat (>= 3.0.0)
 Config/testthat/edition: 3
