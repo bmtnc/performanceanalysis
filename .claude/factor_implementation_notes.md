@@ -192,6 +192,124 @@ This is confirmed empirically: our equal-weighted FI market return correlates on
 
 ---
 
+## Inflation Data: CPI Limitations and Breakeven Alternatives
+
+### The problem
+
+The FI value signal (real yield = nominal yield − inflation) and FX value signal (PPP deviation, interpolated with CPI) both depend on CPI data from FRED. This creates two issues:
+
+1. **Publication lag:** OECD CPI series on FRED lag ~2 months behind the present, truncating the entire combined factor panel to whenever CPI runs out. Since the HF analysis script inner-joins all factors, two stale factors (FI value, FX value) were dragging the analysis back to April 2025 while all other factors extended to February 2026.
+
+2. **Country coverage gaps:**
+   - Japan: OECD stopped publishing CPI to FRED in April 2022. All monthly JP CPI series are stale.
+   - Australia, New Zealand: Monthly CPI doesn't exist on FRED (quarterly only, step-interpolated).
+   - Germany, France: Actually available on FRED (`DEUCPIALLMINMEI`, `FRACPIALLMINMEI`) but were not being fetched due to a config issue in the FI script.
+
+### Current approach (as of April 2026)
+
+**US FI value:** Uses 10Y TIPS breakeven inflation (`T10YIE` on FRED) instead of trailing CPI. This is an improvement over the CPI approach:
+- Forward-looking (market-implied) vs backward-looking (trailing 3yr CPI)
+- Updated daily on FRED vs CPI's ~2 month lag
+- Tenor-matched to the 10Y nominal yield
+
+**Non-US FI value:** Still uses trailing CPI where available. Countries with stale or missing CPI produce NA value signals for those months.
+
+**FX value:** Still uses OECD PPP rates interpolated with CPI. Truncates when CPI runs out. The HF analysis script fills NAs with zero so stale factors don't drop entire months.
+
+### Available free sources for breakeven inflation, by country
+
+#### US — FRED (implemented)
+
+| Series | Description | Frequency |
+|---|---|---|
+| `T10YIE` | 10Y TIPS breakeven inflation | Daily |
+| `T5YIE` | 5Y TIPS breakeven inflation | Daily |
+| `T10YIEM` / `T5YIEM` | Monthly versions of above | Monthly |
+| `T5YIFR` | 5Y/5Y forward inflation expectation | Daily |
+| `DFII10` | 10Y TIPS real yield (breakeven = nominal − this) | Daily |
+| `EXPINF10YR` | Cleveland Fed 10Y expected inflation (model-based) | Monthly |
+
+#### Euro area (DE, FR, IT, NL, BE as bloc) — ECB Statistical Data Warehouse
+
+The ECB publishes both nominal and real (inflation-linked) euro area benchmark bond yields. Breakeven = nominal − real.
+
+| Series | Description | Frequency | API |
+|---|---|---|---|
+| `FM.M.U2.EUR.4F.BB.U2_10Y.YLD` | Nominal 10Y euro area benchmark yield | Monthly | ECB SDMX REST |
+| `FM.M.U2.EUR.4F.BB.R_U2_10Y.YLDA` | Real 10Y euro area benchmark yield | Monthly | ECB SDMX REST |
+
+API base: `https://data-api.ecb.europa.eu/service/data/FM/`
+No authentication required. Add `?lastNObservations=N` and header `Accept: text/csv` for CSV output. Current through March 2026.
+
+Limitation: Euro area aggregate only — not available at individual country level (DE, FR, IT, etc.). For the cross-country value signal, all 5 eurozone countries in our panel would share the same breakeven.
+
+#### UK (GB) — Bank of England
+
+The BoE publishes nominal, real (from index-linked gilts), and implied inflation yield curves at maturities out to 25+ years.
+
+| Curve | Description | Frequency |
+|---|---|---|
+| Nominal zero-coupon | Fitted from conventional gilts | Daily/Monthly |
+| Real zero-coupon | Fitted from index-linked gilts | Daily/Monthly |
+| Implied inflation | Nominal minus real | Daily/Monthly |
+
+Access: File download only — **no API**. ZIP archives containing spreadsheets.
+URL: `https://www.bankofengland.co.uk/statistics/yield-curves`
+Actively updated, current data available.
+
+#### Canada (CA) — Bank of Canada Valet API
+
+| Series | Description | Frequency | API |
+|---|---|---|---|
+| Real Return Bond yields | Spread vs conventional bonds gives breakeven | Daily | REST JSON/CSV |
+| `CES_C1A_*` series | Consumer inflation expectations (1Y, 2Y, 5Y) | Quarterly | REST JSON/CSV |
+
+API base: `https://www.bankofcanada.ca/valet/observations/{series_id}/json`
+No authentication required.
+
+#### Australia (AU) — Reserve Bank of Australia
+
+| Source | Description | Frequency |
+|---|---|---|
+| Statistical Table F16 | Individual Treasury Indexed Bond (inflation-linked) yields | Daily |
+| Statistical Table F17 | Nominal zero-coupon yield curve | Daily |
+
+Breakeven derived by interpolating F16 indexed bond yields to match nominal maturities from F17.
+URLs: `https://www.rba.gov.au/statistics/tables/csv/f16-data.csv` and `https://www.rba.gov.au/statistics/tables/csv/f17-yields.csv`
+No authentication. CSV download. F16 last updated March 2026.
+
+#### Japan (JP) — Ministry of Finance
+
+JGB inflation-indexed bond (JGBi) yields published as CSV downloads since 2004.
+URL: `https://www.mof.go.jp/english/policy/jgbs/reference/interest_rate/index.htm`
+File-based, not API-based. Would need to derive breakeven from nominal JGB yield minus JGBi yield.
+
+Note: The Bank of Japan launched a time-series API in February 2026 (`https://www.stat-search.boj.or.jp/`) but it covers call rates, money market rates, FX, and prices — not JGB yields directly.
+
+#### Countries with no free breakeven source
+
+| Country | Status |
+|---|---|
+| Sweden (SE) | Issues inflation-linked bonds but Riksbank API only publishes nominal yields |
+| Switzerland (CH) | No free source found |
+| Denmark (DK) | No free source found |
+| Norway (NO) | Norges Bank publishes quarterly survey expectations (PDF reports only, no API) |
+| New Zealand (NZ) | No free source found |
+
+These 5 countries would remain on trailing CPI for the value signal.
+
+### Implementation priority
+
+1. **Done:** US via `T10YIE` on FRED
+2. **High value:** Euro area via ECB (covers 5 countries with one API call)
+3. **High value:** UK via BoE file download (major bond market)
+4. **Medium:** Canada via Bank of Canada Valet API
+5. **Medium:** Australia via RBA CSV downloads
+6. **Lower:** Japan via MOF CSV (requires scraping, and JP CPI on FRED is stale since 2022 anyway)
+7. **Not feasible:** SE, CH, DK, NO, NZ — stay on trailing CPI
+
+---
+
 ## Implementation History
 
 The factors went through several iterations. Key fixes and their impact:
@@ -206,6 +324,8 @@ The factors went through several iterations. Key fixes and their impact:
 | Beta shrinkage | FI Defensive | — | +0.05 | Reduced noise from extreme leverage |
 | Min country threshold | FI all | — | +0.03–0.06 | Dropped noisy pre-1985 period with <8 countries |
 | Exact repricing formula | FI all | — | ~+0.01 | Captures convexity and roll-down; marginal improvement |
+| US TIPS breakeven for value | FI Value (US) | ends Apr 2025 | extends to present | Forward-looking, real-time vs 2-month CPI lag |
+| US 3M T-bill splice for FX | FX all | 2-month gap Apr-May 2020 | no gap | Single missing OECD USD rate cascaded to all currencies |
 
 ---
 
