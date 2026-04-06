@@ -45,7 +45,7 @@ This is an R package (`performanceanalysis`) for quantitative factor-based perfo
 - **Equity factors:** Cached AQR downloads in `data/aqr/*.rds` (HML Devil, momentum, century premia, risk-free rate). AQR Excel files have 18 header rows (`readxl::read_excel(..., skip = 18)`).
 - **FI/FX factors:** Cached FRED data in `data/fred/*.rds`. Bond returns approximated from yield changes via 1st-order duration formula.
 - **ETF prices:** Fetched live from Alpha Vantage API (key via `ALPHA_VANTAGE_API_KEY` env var). Rate-limited with 1s+ delays between requests.
-- **FRED API:** Key stored in `.Renviron` as `FRED_API_KEY`.
+- **FRED API:** Key set as `FRED_API_KEY` env var in user's `.zshrc`.
 
 ### Rolling regression conventions
 
@@ -55,11 +55,11 @@ This is an R package (`performanceanalysis`) for quantitative factor-based perfo
 
 ## Dependencies
 
-Managed by `renv`. Key packages: `dplyr`, `quadprog` (QP solver), `roll` (rolling OLS), `slider` (general sliding windows), `httr`/`jsonlite` (API calls), `rlang` (NSE), `ggplot2`/`scales` (visualization in scripts), `fredr` (FRED API in scripts), `readxl` (AQR Excel ingestion in scripts).
+Managed by `renv`. Key packages: `dplyr`, `quadprog` (QP solver), `roll` (rolling OLS), `slider` (general sliding windows), `httr`/`jsonlite` (API calls), `rlang` (NSE), `ggplot2`/`scales` (visualization in scripts), `fredr` (FRED API in scripts), `readxl` (AQR Excel ingestion in scripts), `avpipeline` (internal validation helpers, GitHub: `bmtnc/avpipeline`).
 
 ## Validation patterns
 
-Functions validate inputs at entry: `validate_tickers()` for ticker vectors, `validate_df_cols()` for data frames (type + required columns), `validate_regression_predictors()` for matrix diagnostics (p >= n, constant columns, multicollinearity). Error messages include expected vs actual values.
+Use `avpipeline::validate_*()` helpers for common input validation (data frame type/columns, date types, numeric vectors, non-empty checks). Do not duplicate validation logic that already exists in avpipeline. Package-specific validation (e.g., `validate_regression_predictors()` for matrix diagnostics) lives in this repo.
 
 ## R Coding Conventions
 
@@ -67,7 +67,8 @@ Functions validate inputs at entry: `validate_tickers()` for ticker vectors, `va
 
 - **One function per file**: `R/function_name.R`
 - **Explicit namespacing**: Always `dplyr::select()`, `tibble::tibble()`, etc. Never use `library()` in package code. Do NOT namespace base R or default packages (`log()`, `mean()`, `stats::lm()` are fine without prefix).
-- **Roxygen2 documentation**: All exported functions need `@param`, `@return`, `@export`
+- **Pipe operator**: Use `%>%` (magrittr), not `|>` (native pipe).
+- **Roxygen2 documentation**: All exported functions need `@param`, `@return`, `@export`. Do not use `\code{}`, `\item{}`, or other Rd markup — use plain text.
 - **Vectorization over loops**: Prefer vectorized operations; only use loops for sequential dependencies or progress reporting
 - **Declarative style**: Use `dplyr` pipelines over imperative loops; prefer `group_by() + mutate()` over split-apply-bind
 
