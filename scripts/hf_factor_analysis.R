@@ -9,7 +9,6 @@
 # Script Params ----
 
 target_ticker <- "BIMBX"
-# target_ticker <- "VWENX"
 
 roll_window_monthly <- 24L # factor regressions (monthly, ~5 years)
 
@@ -24,6 +23,13 @@ equity_geography <- "USA"
 use_fi_factors <- TRUE
 use_fx_factors <- TRUE
 use_eq_factors <- TRUE
+
+# constraints
+
+non_negative <- FALSE
+sum_to_one <- FALSE
+intercept <- TRUE
+
 
 target_lower <- tolower(target_ticker)
 
@@ -90,15 +96,22 @@ if (use_eq_factors) {
     dplyr::filter(geography == equity_geography)
   if (nrow(eq_filtered) == 0) {
     stop(paste0(
-      "No equity data for geography '", equity_geography, "'. ",
-      "Valid values: ", paste(unique(eq_raw$geography), collapse = ", ")
+      "No equity data for geography '",
+      equity_geography,
+      "'. ",
+      "Valid values: ",
+      paste(unique(eq_raw$geography), collapse = ", ")
     ))
   }
   # Momentum is in a separate file with different structure
   # Map geography to momentum column
-  mom_col <- switch(equity_geography,
+  mom_col <- switch(
+    equity_geography,
     "USA" = "us_large_cap",
-    "Global" = , "Global Ex USA" = , "Europe" = , "Pacific" = "international",
+    "Global" = ,
+    "Global Ex USA" = ,
+    "Europe" = ,
+    "Pacific" = "international",
     "us_large_cap"
   )
   mom_monthly <- mom_raw %>%
@@ -118,7 +131,9 @@ if (use_eq_factors) {
     dplyr::full_join(mom_monthly, by = "date")
 }
 
-if (length(factor_dfs) == 0) stop("No factor groups selected")
+if (length(factor_dfs) == 0) {
+  stop("No factor groups selected")
+}
 
 factor_data <- Reduce(
   function(x, y) dplyr::full_join(x, y, by = "date"),
@@ -127,7 +142,9 @@ factor_data <- Reduce(
 
 factor_cols <- setdiff(names(factor_data), "date")
 message(paste0(
-  "Using ", length(factor_cols), " cross-asset factors: ",
+  "Using ",
+  length(factor_cols),
+  " cross-asset factors: ",
   paste(factor_cols, collapse = ", ")
 ))
 
@@ -141,7 +158,10 @@ target_monthly <- monthly_returns %>%
 
 regression_data <- target_monthly %>%
   dplyr::inner_join(factor_data, by = "date") %>%
-  dplyr::mutate(dplyr::across(dplyr::all_of(factor_cols), ~ tidyr::replace_na(.x, 0))) %>%
+  dplyr::mutate(dplyr::across(
+    dplyr::all_of(factor_cols),
+    ~ tidyr::replace_na(.x, 0)
+  )) %>%
   dplyr::arrange(date)
 
 # Apply date filtering
@@ -216,16 +236,17 @@ x_mat <- as.matrix(regression_data[, factor_cols])
 
 message(paste0(
   "Running unconstrained rolling regression (",
-  roll_window_monthly, "-month window)..."
+  roll_window_monthly,
+  "-month window)..."
 ))
 
 target_fit <- roll_constrained_lm(
   x = x_mat,
   y = regression_data$target_return,
   width = roll_window_monthly,
-  non_negative = FALSE,
-  sum_to_one = FALSE,
-  intercept = TRUE
+  non_negative = non_negative,
+  sum_to_one = sum_to_one,
+  intercept = intercept
 )
 
 target_coefs <- as.data.frame(target_fit$coefficients)
@@ -238,17 +259,20 @@ target_exposure <- tibble::as_tibble(target_coefs) %>%
 # Summary stats
 latest <- target_exposure %>% dplyr::slice_tail(n = 1)
 message(paste0(
-  "\nLatest exposures (", format(latest$date), "):"
+  "\nLatest exposures (",
+  format(latest$date),
+  "):"
 ))
 for (fc in factor_cols) {
   message(sprintf("  %-12s: %+.3f", factor_labels[fc], latest[[fc]]))
 }
-message(sprintf("  %-12s: %+.4f (%.1f%% annualized)",
-  "Alpha", latest$alpha, latest$alpha * 12 * 100
+message(sprintf(
+  "  %-12s: %+.4f (%.1f%% annualized)",
+  "Alpha",
+  latest$alpha,
+  latest$alpha * 12 * 100
 ))
-message(sprintf("  %-12s: %.3f",
-  "Sum of betas", sum(latest[factor_cols])
-))
+message(sprintf("  %-12s: %.3f", "Sum of betas", sum(latest[factor_cols])))
 
 # Visualization 1: Stacked bar of rolling factor exposures
 viz_exposure <- target_exposure %>%
@@ -260,7 +284,12 @@ viz_exposure <- target_exposure %>%
 
 p1 <- viz_exposure %>%
   ggplot(aes(x = date, y = exposure, fill = factor_label)) +
-  geom_col(aes(color = factor_label), width = 30, alpha = 0.8, linewidth = 0.25) +
+  geom_col(
+    aes(color = factor_label),
+    width = 30,
+    alpha = 0.8,
+    linewidth = 0.25
+  ) +
   scale_color_manual(values = factor_palette, guide = "none") +
   geom_hline(yintercept = 0, color = "black", linewidth = 0.3) +
   scale_x_date(
@@ -277,12 +306,15 @@ p1 <- viz_exposure %>%
   ) +
   labs(
     title = paste0(
-      "Rolling Factor Exposures: ", target_ticker
+      "Rolling Factor Exposures: ",
+      target_ticker
     ),
     subtitle = paste0(
       "Unconstrained regression -- ",
-      length(factor_cols), "-factor model, ",
-      roll_window_monthly, "-month window"
+      length(factor_cols),
+      "-factor model, ",
+      roll_window_monthly,
+      "-month window"
     ),
     x = "",
     y = "Factor Exposure (Beta)",
@@ -344,7 +376,8 @@ p2 <- alpha_data %>%
     title = paste0("Rolling Alpha: ", target_ticker),
     subtitle = paste0(
       "Annualized intercept from ",
-      roll_window_monthly, "-month unconstrained regression"
+      roll_window_monthly,
+      "-month unconstrained regression"
     ),
     x = "",
     y = "Alpha (annualized)",
@@ -386,8 +419,11 @@ message("\nFull-sample factor exposures:")
 for (fc in factor_cols) {
   message(sprintf("  %-12s: %+.4f", factor_labels[fc], full_coefs[fc]))
 }
-message(sprintf("  %-12s: %+.5f (%.2f%% annualized)",
-  "Alpha", full_coefs["alpha"], full_coefs["alpha"] * 12 * 100
+message(sprintf(
+  "  %-12s: %+.5f (%.2f%% annualized)",
+  "Alpha",
+  full_coefs["alpha"],
+  full_coefs["alpha"] * 12 * 100
 ))
 message(sprintf("  %-12s: %.4f", "R-squared", full_fit$r.squared))
 message(sprintf("  %-12s: %.3f", "Sum of betas", sum(full_coefs[factor_cols])))
@@ -415,9 +451,13 @@ p3 <- coef_df %>%
     title = paste0("Full-Sample Factor Exposures: ", target_ticker),
     subtitle = paste0(
       "Unconstrained regression | ",
-      nrow(regression_data), " months | ",
-      "R² = ", sprintf("%.1f%%", full_fit$r.squared * 100),
-      " | Alpha = ", sprintf("%+.2f%%", full_coefs["alpha"] * 12 * 100), " ann."
+      nrow(regression_data),
+      " months | ",
+      "R² = ",
+      sprintf("%.1f%%", full_fit$r.squared * 100),
+      " | Alpha = ",
+      sprintf("%+.2f%%", full_coefs["alpha"] * 12 * 100),
+      " ann."
     ),
     x = "",
     y = "Factor Exposure (Beta)",
@@ -457,7 +497,10 @@ target_returns_ctr <- monthly_returns %>%
 # to zero in a single period, producing the artificial ~30% idiosyncratic
 # spike visible around the stale-factor cutoff date.
 factor_data_filled <- factor_data %>%
-  dplyr::mutate(dplyr::across(dplyr::all_of(factor_cols), ~ tidyr::replace_na(.x, 0)))
+  dplyr::mutate(dplyr::across(
+    dplyr::all_of(factor_cols),
+    ~ tidyr::replace_na(.x, 0)
+  ))
 
 ctr_data <- calculate_ctr(
   rolling_fit = target_fit,
@@ -492,13 +535,17 @@ viz_ctr <- cumulative_ctr %>%
     cumulative_idiosyncratic = cumulative_alpha_ctr + cumulative_residual
   ) %>%
   dplyr::select(
-    date, cumulative_idiosyncratic,
+    date,
+    cumulative_idiosyncratic,
     dplyr::all_of(paste0("cumulative_", ctr_col_names))
   ) %>%
   tidyr::pivot_longer(-date, names_to = "component", values_to = "value") %>%
   dplyr::mutate(
     component_name = gsub("^cumulative_", "", component),
-    label = factor(ctr_plot_labels[component_name], levels = rev(ctr_plot_order))
+    label = factor(
+      ctr_plot_labels[component_name],
+      levels = rev(ctr_plot_order)
+    )
   )
 
 p4 <- viz_ctr %>%
@@ -522,7 +569,9 @@ p4 <- viz_ctr %>%
   geom_text(
     data = cumulative_ctr %>% dplyr::slice_tail(n = 1),
     aes(
-      x = date, y = cumulative_fund_return, fill = NULL,
+      x = date,
+      y = cumulative_fund_return,
+      fill = NULL,
       label = scales::percent(cumulative_fund_return, accuracy = 0.1)
     ),
     color = "black",
@@ -545,8 +594,10 @@ p4 <- viz_ctr %>%
     title = paste0("Cumulative Contribution to Return: ", target_ticker),
     subtitle = paste0(
       "Out-of-sample decomposition (lagged betas) -- ",
-      length(factor_cols), "-factor model, ",
-      roll_window_monthly, "-month window"
+      length(factor_cols),
+      "-factor model, ",
+      roll_window_monthly,
+      "-month window"
     ),
     x = "",
     y = "Cumulative Return",
@@ -609,8 +660,12 @@ p5 <- viz_box %>%
   labs(
     title = paste0("Factor Exposure Distribution: ", target_ticker),
     subtitle = paste0(
-      "Rolling ", roll_window_monthly, "-month betas | ",
-      "Gold diamond = latest (", format(max(target_exposure$date), "%b %Y"), ")"
+      "Rolling ",
+      roll_window_monthly,
+      "-month betas | ",
+      "Gold diamond = latest (",
+      format(max(target_exposure$date), "%b %Y"),
+      ")"
     ),
     x = "",
     y = "Factor Exposure (Beta)",
