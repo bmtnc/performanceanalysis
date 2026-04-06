@@ -1,4 +1,4 @@
-# Full Analysis Pipeline V2 — Cross-Asset Factor Premia
+# Full Analysis Pipeline V2 -- Cross-Asset Factor Premia
 # Analyzes fund returns against curated FI, FX, and Equity factor premia
 #
 # Key differences from v1:
@@ -9,18 +9,17 @@
 
 # Script Params ----
 
-target_ticker <- "PSLDX"
+target_ticker <- "BIMBX"
 benchmark_ticker <- "SPY"
 
 roll_window_daily <- 252L   # rolling beta (daily)
 roll_window_monthly <- 60L  # factor regressions (monthly, ~5 years)
-save_images <- TRUE
 
 # Date range filtering (NULL = use all available data)
 start_date <- NULL
 end_date <- NULL
 
-# Equity factor geography
+# Equity factor geography: "Global", "USA", "Europe", "Pacific", "Global Ex USA"
 equity_geography <- "USA"
 
 # Toggle asset class factor groups
@@ -98,8 +97,15 @@ if (use_fx_factors) {
 }
 
 if (use_eq_factors) {
-  factor_dfs[["eq"]] <- eq_raw %>%
-    dplyr::filter(geography == equity_geography) %>%
+  eq_filtered <- eq_raw %>%
+    dplyr::filter(geography == equity_geography)
+  if (nrow(eq_filtered) == 0) {
+    stop(paste0(
+      "No equity data for geography '", equity_geography, "'. ",
+      "Valid values: ", paste(unique(eq_raw$geography), collapse = ", ")
+    ))
+  }
+  factor_dfs[["eq"]] <- eq_filtered %>%
     dplyr::mutate(date = lubridate::floor_date(date, "month")) %>%
     dplyr::select(
       date,
@@ -136,7 +142,7 @@ benchmark_monthly <- monthly_returns %>%
 regression_data <- target_monthly %>%
   dplyr::inner_join(benchmark_monthly, by = "date") %>%
   dplyr::inner_join(factor_data, by = "date") %>%
-  dplyr::filter(complete.cases(.)) %>%
+  tidyr::drop_na() %>%
   dplyr::arrange(date)
 
 # Apply date filtering
@@ -165,10 +171,6 @@ message(paste0(
 library(ggplot2)
 library(ggrepel)
 library(scales)
-
-if (save_images && !dir.exists("images")) {
-  dir.create("images")
-}
 
 # Factor display names and color palette
 factor_labels <- c(
@@ -258,7 +260,7 @@ p1 <- beta_data %>%
     ),
     x = "",
     y = "Beta",
-    caption = "Data: Alpha Vantage • Chart: brrymtnc"
+    caption = "Data: Alpha Vantage"
   ) +
   theme_minimal(base_size = 12) +
   theme(
@@ -271,11 +273,6 @@ p1 <- beta_data %>%
     plot.caption = element_text(size = 8, color = "grey40")
   )
 
-beta_file <- paste0("images/", target_lower, "_v2_beta.svg")
-if (save_images) {
-  ggsave(beta_file, plot = p1, width = 8, height = 5, dpi = 320)
-  message(paste0("Saved: ", beta_file))
-}
 print(p1)
 
 # ============================================================================
@@ -343,13 +340,13 @@ p2 <- viz_decomp %>%
       "Rolling Cross-Asset Factor Decomposition of ", target_ticker
     ),
     subtitle = paste0(
-      "Constrained weights (non-negative, sum to 1) — ",
+      "Constrained weights (non-negative, sum to 1) -- ",
       length(factor_cols), "-factor model, ",
       roll_window_monthly, "-month window"
     ),
     x = "",
     y = "Weight",
-    caption = "Data: FRED, AQR, Alpha Vantage • Chart: brrymtnc"
+    caption = "Data: FRED, AQR, Alpha Vantage"
   ) +
   theme_minimal(base_size = 12) +
   theme(
@@ -364,11 +361,6 @@ p2 <- viz_decomp %>%
     legend.title = element_blank()
   )
 
-decomp_file <- paste0("images/", target_lower, "_v2_factor_decomposition.svg")
-if (save_images) {
-  ggsave(decomp_file, plot = p2, width = 12, height = 6, dpi = 320)
-  message(paste0("Saved: ", decomp_file))
-}
 print(p2)
 
 # ============================================================================
@@ -440,7 +432,7 @@ p3 <- viz_diffs %>%
     ),
     x = "",
     y = "Weight Difference",
-    caption = "Data: FRED, AQR, Alpha Vantage • Chart: brrymtnc"
+    caption = "Data: FRED, AQR, Alpha Vantage"
   ) +
   theme_minimal(base_size = 10) +
   theme(
@@ -453,14 +445,6 @@ p3 <- viz_diffs %>%
     strip.background = element_blank()
   )
 
-diff_file <- paste0(
-  "images/", target_lower, "_", benchmark_lower,
-  "_v2_factor_diffs.svg"
-)
-if (save_images) {
-  ggsave(diff_file, plot = p3, width = 14, height = 8, dpi = 320)
-  message(paste0("Saved: ", diff_file))
-}
 print(p3)
 
 # ============================================================================
@@ -480,7 +464,7 @@ target_attr_fit <- roll_constrained_lm(
   y = regression_data$target_return,
   width = roll_window_monthly,
   non_negative = TRUE,
-  sum_to_one = TRUE,
+  sum_to_one = FALSE,
   intercept = FALSE
 )
 
@@ -629,10 +613,7 @@ p4 <- viz_cumulative %>%
     x = "",
     y = "Cumulative Value-Add",
     fill = "",
-    caption = paste0(
-      "Black line = Total excess return",
-      " • Data: FRED, AQR, Alpha Vantage • Chart: brrymtnc"
-    )
+    caption = "Black line = Total excess return | Data: FRED, AQR, Alpha Vantage"
   ) +
   theme_minimal(base_size = 11) +
   theme(
@@ -648,14 +629,6 @@ p4 <- viz_cumulative %>%
     legend.position = "bottom"
   )
 
-attr_file <- paste0(
-  "images/", target_lower, "_", benchmark_lower,
-  "_v2_attribution.svg"
-)
-if (save_images) {
-  ggsave(attr_file, plot = p4, width = 12, height = 7, dpi = 320)
-  message(paste0("Saved: ", attr_file))
-}
 print(p4)
 
 # ============================================================================
@@ -664,12 +637,4 @@ print(p4)
 
 message("\n========================================")
 message("ANALYSIS COMPLETE!")
-message("========================================")
-if (save_images) {
-  message("\nGenerated visualizations:")
-  message(paste0("  1. ", beta_file))
-  message(paste0("  2. ", decomp_file))
-  message(paste0("  3. ", diff_file))
-  message(paste0("  4. ", attr_file))
-}
-message("\n========================================\n")
+message("========================================\n")
