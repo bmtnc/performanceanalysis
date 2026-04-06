@@ -1,9 +1,18 @@
 # Fetch & Cache AQR Equity Factor Data
-# Parses the 4 AQR Excel files in data/aqr/ and saves tidy RDS caches.
+# Downloads the 4 AQR Excel files (if not already cached) and parses them
+# into tidy RDS caches.
 
 # Script Params ----
 
 data_dir <- "data/aqr"
+
+# AQR download URLs -> local file names
+aqr_downloads <- c(
+  hml_factors_monthly.xlsx = "https://www.aqr.com/-/media/AQR/Documents/Insights/Data-Sets/The-Devil-in-HMLs-Details-Factors-Monthly.xlsx",
+  bab_factors_monthly.xlsx = "https://www.aqr.com/-/media/AQR/Documents/Insights/Data-Sets/Betting-Against-Beta-Equity-Factors-Monthly.xlsx",
+  qmj_factors_monthly.xlsx = "https://www.aqr.com/-/media/AQR/Documents/Insights/Data-Sets/Quality-Minus-Junk-Factors-Monthly.xlsx",
+  momentum_factors_monthly.xlsx = "https://www.aqr.com/-/media/AQR/Documents/Insights/Data-Sets/Momentum-Indices-Monthly.xlsx"
+)
 
 # Input files
 hml_file <- file.path(data_dir, "hml_factors_monthly.xlsx")
@@ -18,6 +27,22 @@ rf_out <- file.path(data_dir, "aqr_risk_free_rate.rds")
 
 # Geographies to keep from the 30-column factor sheets
 keep_geos <- c("USA", "Global", "Global Ex USA", "Europe", "Pacific")
+
+# Download ----
+
+if (!dir.exists(data_dir)) {
+  dir.create(data_dir, recursive = TRUE)
+}
+
+for (fname in names(aqr_downloads)) {
+  dest <- file.path(data_dir, fname)
+  if (!file.exists(dest)) {
+    cat(sprintf("Downloading %s ...\n", fname))
+    download.file(aqr_downloads[[fname]], dest, mode = "wb", quiet = TRUE)
+  } else {
+    cat(sprintf("Already cached: %s\n", fname))
+  }
+}
 
 # Helpers ----
 
