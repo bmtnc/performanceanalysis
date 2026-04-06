@@ -20,14 +20,16 @@
 #'   {factor}_ctr column per factor, total_explained, and residual.
 #' @export
 calculate_ctr <- function(
-    rolling_fit,
-    dates,
-    fund_returns,
-    factor_returns,
-    factor_cols
+  rolling_fit,
+  dates,
+  fund_returns,
+  factor_returns,
+  factor_cols
 ) {
   if (!is.list(rolling_fit) || is.null(rolling_fit$coefficients)) {
-    stop("calculate_ctr(): [rolling_fit] must be a list with a 'coefficients' matrix.")
+    stop(
+      "calculate_ctr(): [rolling_fit] must be a list with a 'coefficients' matrix."
+    )
   }
   coef_mat <- as.matrix(rolling_fit$coefficients)
 
@@ -35,7 +37,10 @@ calculate_ctr <- function(
   if (length(dates) != nrow(coef_mat)) {
     stop(paste0(
       "calculate_ctr(): [dates] must have length ",
-      nrow(coef_mat), "; got length ", length(dates), "."
+      nrow(coef_mat),
+      "; got length ",
+      length(dates),
+      "."
     ))
   }
   avpipeline::validate_df_cols(fund_returns, c("date", "return"))
@@ -46,7 +51,8 @@ calculate_ctr <- function(
   if (length(missing_in_coefs) > 0) {
     stop(paste0(
       "calculate_ctr(): [rolling_fit$coefficients] missing columns: ",
-      paste(missing_in_coefs, collapse = ", "), "."
+      paste(missing_in_coefs, collapse = ", "),
+      "."
     ))
   }
 
@@ -85,7 +91,11 @@ calculate_ctr <- function(
     dplyr::inner_join(factors_long, by = c("apply_date" = "date", "factor")) %>%
     dplyr::mutate(ctr = beta * factor_return) %>%
     dplyr::select(apply_date, factor, ctr) %>%
-    tidyr::pivot_wider(names_from = factor, values_from = ctr, names_glue = "{factor}_ctr")
+    tidyr::pivot_wider(
+      names_from = factor,
+      values_from = ctr,
+      names_glue = "{factor}_ctr"
+    )
 
   coef_df %>%
     dplyr::select(apply_date, dplyr::any_of("(Intercept)")) %>%
@@ -96,12 +106,17 @@ calculate_ctr <- function(
     dplyr::inner_join(ctr_wide, by = "apply_date") %>%
     dplyr::mutate(
       alpha_ctr = if (has_intercept) .data[["(Intercept)"]] else 0,
-      total_explained = alpha_ctr + rowSums(dplyr::pick(dplyr::all_of(ctr_col_names))),
+      total_explained = alpha_ctr +
+        rowSums(dplyr::pick(dplyr::all_of(ctr_col_names))),
       residual = fund_return - total_explained
     ) %>%
     dplyr::select(
-      date = apply_date, fund_return, alpha_ctr,
-      dplyr::all_of(ctr_col_names), total_explained, residual
+      date = apply_date,
+      fund_return,
+      alpha_ctr,
+      dplyr::all_of(ctr_col_names),
+      total_explained,
+      residual
     ) %>%
     dplyr::arrange(date)
 }

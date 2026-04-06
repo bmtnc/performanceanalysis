@@ -21,39 +21,75 @@ calculate_factor_attribution <- function(
   factor_cols
 ) {
   if (!is.data.frame(target_weights)) {
-    stop(paste0("calculate_factor_attribution(): [target_weights] must be a data.frame, not ", class(target_weights)[1]))
+    stop(paste0(
+      "calculate_factor_attribution(): [target_weights] must be a data.frame, not ",
+      class(target_weights)[1]
+    ))
   }
   if (!is.data.frame(benchmark_weights)) {
-    stop(paste0("calculate_factor_attribution(): [benchmark_weights] must be a data.frame, not ", class(benchmark_weights)[1]))
+    stop(paste0(
+      "calculate_factor_attribution(): [benchmark_weights] must be a data.frame, not ",
+      class(benchmark_weights)[1]
+    ))
   }
   if (!is.data.frame(factor_returns)) {
-    stop(paste0("calculate_factor_attribution(): [factor_returns] must be a data.frame, not ", class(factor_returns)[1]))
+    stop(paste0(
+      "calculate_factor_attribution(): [factor_returns] must be a data.frame, not ",
+      class(factor_returns)[1]
+    ))
   }
   if (!is.data.frame(target_returns)) {
-    stop(paste0("calculate_factor_attribution(): [target_returns] must be a data.frame, not ", class(target_returns)[1]))
+    stop(paste0(
+      "calculate_factor_attribution(): [target_returns] must be a data.frame, not ",
+      class(target_returns)[1]
+    ))
   }
   if (!is.data.frame(benchmark_returns)) {
-    stop(paste0("calculate_factor_attribution(): [benchmark_returns] must be a data.frame, not ", class(benchmark_returns)[1]))
+    stop(paste0(
+      "calculate_factor_attribution(): [benchmark_returns] must be a data.frame, not ",
+      class(benchmark_returns)[1]
+    ))
   }
   if (!is.character(factor_cols) || length(factor_cols) == 0) {
-    stop(paste0("calculate_factor_attribution(): [factor_cols] must be a character vector of length > 0, not ", class(factor_cols)[1], " of length ", length(factor_cols)))
+    stop(paste0(
+      "calculate_factor_attribution(): [factor_cols] must be a character vector of length > 0, not ",
+      class(factor_cols)[1],
+      " of length ",
+      length(factor_cols)
+    ))
   }
 
   required_cols <- c("date", factor_cols)
   if (!all(required_cols %in% colnames(target_weights))) {
-    stop(paste0("calculate_factor_attribution(): [target_weights] missing required columns: ", paste(setdiff(required_cols, colnames(target_weights)), collapse = ", ")))
+    stop(paste0(
+      "calculate_factor_attribution(): [target_weights] missing required columns: ",
+      paste(setdiff(required_cols, colnames(target_weights)), collapse = ", ")
+    ))
   }
   if (!all(required_cols %in% colnames(benchmark_weights))) {
-    stop(paste0("calculate_factor_attribution(): [benchmark_weights] missing required columns: ", paste(setdiff(required_cols, colnames(benchmark_weights)), collapse = ", ")))
+    stop(paste0(
+      "calculate_factor_attribution(): [benchmark_weights] missing required columns: ",
+      paste(
+        setdiff(required_cols, colnames(benchmark_weights)),
+        collapse = ", "
+      )
+    ))
   }
   if (!all(required_cols %in% colnames(factor_returns))) {
-    stop(paste0("calculate_factor_attribution(): [factor_returns] missing required columns: ", paste(setdiff(required_cols, colnames(factor_returns)), collapse = ", ")))
+    stop(paste0(
+      "calculate_factor_attribution(): [factor_returns] missing required columns: ",
+      paste(setdiff(required_cols, colnames(factor_returns)), collapse = ", ")
+    ))
   }
   if (!all(c("date", "return") %in% colnames(target_returns))) {
-    stop(paste0("calculate_factor_attribution(): [target_returns] must have columns 'date' and 'return'"))
+    stop(paste0(
+      "calculate_factor_attribution(): [target_returns] must have columns 'date' and 'return'"
+    ))
   }
   if (!all(c("date", "return") %in% colnames(benchmark_returns))) {
-    stop(paste0("calculate_factor_attribution(): [benchmark_returns] must have columns 'date' and 'return'"))
+    stop(paste0(
+      "calculate_factor_attribution(): [benchmark_returns] must have columns 'date' and 'return'"
+    ))
   }
 
   target_weights_shifted <- target_weights %>%
@@ -77,11 +113,13 @@ calculate_factor_attribution <- function(
       by = "future_date"
     ) %>%
     dplyr::inner_join(
-      target_returns %>% dplyr::rename(future_date = date, actual_target = return),
+      target_returns %>%
+        dplyr::rename(future_date = date, actual_target = return),
       by = "future_date"
     ) %>%
     dplyr::inner_join(
-      benchmark_returns %>% dplyr::rename(future_date = date, actual_benchmark = return),
+      benchmark_returns %>%
+        dplyr::rename(future_date = date, actual_benchmark = return),
       by = "future_date"
     )
 
@@ -97,8 +135,10 @@ calculate_factor_attribution <- function(
 
     attribution_data <- attribution_data %>%
       dplyr::mutate(
-        expected_target = expected_target + !!as.symbol(target_col) * !!as.symbol(factor),
-        expected_benchmark = expected_benchmark + !!as.symbol(benchmark_col) * !!as.symbol(factor)
+        expected_target = expected_target +
+          !!as.symbol(target_col) * !!as.symbol(factor),
+        expected_benchmark = expected_benchmark +
+          !!as.symbol(benchmark_col) * !!as.symbol(factor)
       )
   }
 
@@ -106,7 +146,8 @@ calculate_factor_attribution <- function(
     dplyr::mutate(
       excess_return = actual_target - actual_benchmark,
       factor_contribution = expected_target - expected_benchmark,
-      selection_effect = (actual_target - expected_target) - (actual_benchmark - expected_benchmark)
+      selection_effect = (actual_target - expected_target) -
+        (actual_benchmark - expected_benchmark)
     ) %>%
     dplyr::select(
       date = future_date,

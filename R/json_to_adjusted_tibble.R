@@ -24,8 +24,8 @@ json_to_adjusted_tibble <- function(json_data, symbol) {
   )
 
   tibble::tibble(
-    date           = as.Date(names(ts)),
-    ticker         = symbol,
+    date = as.Date(names(ts)),
+    ticker = symbol,
     adjusted_close = adj_close
   )
 }

@@ -15,7 +15,10 @@
 #'   cumulative_{factor}_ctr for each factor, cumulative_residual).
 #' @export
 calculate_cumulative_ctr <- function(ctr_data, factor_ctr_cols) {
-  avpipeline::validate_df_cols(ctr_data, c("date", "fund_return", "alpha_ctr", "residual"))
+  avpipeline::validate_df_cols(
+    ctr_data,
+    c("date", "fund_return", "alpha_ctr", "residual")
+  )
   avpipeline::validate_non_empty(factor_ctr_cols, name = "factor_ctr_cols")
   avpipeline::validate_df_cols(ctr_data, factor_ctr_cols)
 

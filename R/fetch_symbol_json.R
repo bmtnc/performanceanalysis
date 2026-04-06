@@ -7,16 +7,16 @@
 #' @export
 fetch_symbol_json <- function(symbol, api_key) {
   resp <- httr::RETRY(
-    verb      = "GET",
-    url       = "https://www.alphavantage.co/query",
-    query     = list(
-      "function"   = "TIME_SERIES_DAILY_ADJUSTED",
-      symbol       = symbol,
-      outputsize   = "full",
-      apikey       = api_key,
-      datatype     = "json"
+    verb = "GET",
+    url = "https://www.alphavantage.co/query",
+    query = list(
+      "function" = "TIME_SERIES_DAILY_ADJUSTED",
+      symbol = symbol,
+      outputsize = "full",
+      apikey = api_key,
+      datatype = "json"
     ),
-    times     = 3,
+    times = 3,
     pause_min = 2
   )
 
@@ -25,6 +25,6 @@ fetch_symbol_json <- function(symbol, api_key) {
     return(NULL)
   }
 
-  dat_txt  <- httr::content(resp, "text", encoding = "UTF-8")
+  dat_txt <- httr::content(resp, "text", encoding = "UTF-8")
   jsonlite::fromJSON(dat_txt, simplifyDataFrame = TRUE)
 }

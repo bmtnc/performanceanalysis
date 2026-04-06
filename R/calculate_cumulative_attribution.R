@@ -13,9 +13,18 @@ calculate_cumulative_attribution <- function(daily_attribution) {
     daily_attribution,
     c("date", "excess_return", "factor_contribution", "selection_effect")
   )
-  avpipeline::validate_numeric_vector(daily_attribution$excess_return, name = "excess_return")
-  avpipeline::validate_numeric_vector(daily_attribution$factor_contribution, name = "factor_contribution")
-  avpipeline::validate_numeric_vector(daily_attribution$selection_effect, name = "selection_effect")
+  avpipeline::validate_numeric_vector(
+    daily_attribution$excess_return,
+    name = "excess_return"
+  )
+  avpipeline::validate_numeric_vector(
+    daily_attribution$factor_contribution,
+    name = "factor_contribution"
+  )
+  avpipeline::validate_numeric_vector(
+    daily_attribution$selection_effect,
+    name = "selection_effect"
+  )
 
   sorted_data <- daily_attribution %>%
     dplyr::arrange(date)

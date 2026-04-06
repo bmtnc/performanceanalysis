@@ -8,7 +8,11 @@ validate_tickers <- function(tickers) {
   if (!is.character(tickers) || length(tickers) == 0) {
     stop(paste0(
       "`tickers` must be a non-empty character vector. ",
-      "Got type: ", typeof(tickers), ", length: ", length(tickers), "."
+      "Got type: ",
+      typeof(tickers),
+      ", length: ",
+      length(tickers),
+      "."
     ))
   }
   invisible(TRUE)
