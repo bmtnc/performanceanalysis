@@ -10,7 +10,7 @@
 
 target_ticker <- "BIMBX"
 
-roll_window_monthly <- 60L # factor regressions (monthly, ~5 years)
+roll_window_monthly <- 24L # factor regressions (monthly, ~5 years)
 
 # Date range filtering (NULL = use all available data)
 start_date <- NULL
@@ -193,7 +193,7 @@ factor_palette <- c(
   "EQ Value" = "#a50f15",
   "EQ Low Beta" = "#cb181d",
   "EQ Quality" = "#ef3b2c",
-  "EQ Market" = "#525252",
+  "EQ Market" = "#d4a017",
   "EQ Size" = "#fb6a4a",
   "EQ Momentum" = "#fc9272"
 )
@@ -430,6 +430,188 @@ p3 <- coef_df %>%
   )
 
 print(p3)
+
+# ============================================================================
+# ANALYSIS 4: CUMULATIVE CONTRIBUTION TO RETURN
+# ============================================================================
+
+message("\n========================================")
+message("ANALYSIS 4: CUMULATIVE CONTRIBUTION TO RETURN")
+message("========================================")
+
+target_returns_ctr <- monthly_returns %>%
+  dplyr::filter(ticker == target_ticker) %>%
+  dplyr::select(date, return)
+
+ctr_data <- calculate_ctr(
+  rolling_fit = target_fit,
+  dates = regression_data$date,
+  fund_returns = target_returns_ctr,
+  factor_returns = factor_data,
+  factor_cols = factor_cols
+)
+
+ctr_col_names <- paste0(factor_cols, "_ctr")
+
+cumulative_ctr <- calculate_cumulative_ctr(ctr_data, ctr_col_names)
+
+message(paste0("CTR observations: ", nrow(ctr_data)))
+message(paste0("Date range: ", min(ctr_data$date), " to ", max(ctr_data$date)))
+
+# Combine alpha + residual into "Idiosyncratic" for plotting
+ctr_plot_labels <- c(
+  idiosyncratic = "Idiosyncratic",
+  setNames(paste0(factor_labels[factor_cols]), ctr_col_names)
+)
+
+ctr_palette <- c(
+  "Idiosyncratic" = "Black",
+  factor_palette
+)
+
+ctr_plot_order <- unname(ctr_plot_labels)
+
+viz_ctr <- cumulative_ctr %>%
+  dplyr::mutate(
+    cumulative_idiosyncratic = cumulative_alpha_ctr + cumulative_residual
+  ) %>%
+  dplyr::select(
+    date, cumulative_idiosyncratic,
+    dplyr::all_of(paste0("cumulative_", ctr_col_names))
+  ) %>%
+  tidyr::pivot_longer(-date, names_to = "component", values_to = "value") %>%
+  dplyr::mutate(
+    component_name = gsub("^cumulative_", "", component),
+    label = factor(ctr_plot_labels[component_name], levels = rev(ctr_plot_order))
+  )
+
+p4 <- viz_ctr %>%
+  ggplot(aes(x = date, y = value, fill = label)) +
+  geom_col(aes(color = label), width = 30, alpha = 0.8, linewidth = 0.25) +
+  scale_color_manual(values = ctr_palette, guide = "none") +
+  geom_line(
+    data = cumulative_ctr,
+    aes(x = date, y = cumulative_fund_return, fill = NULL),
+    color = "black",
+    linewidth = 0.7,
+    show.legend = FALSE
+  ) +
+  geom_point(
+    data = cumulative_ctr %>% dplyr::slice_tail(n = 1),
+    aes(x = date, y = cumulative_fund_return, fill = NULL),
+    color = "black",
+    size = 2.5,
+    show.legend = FALSE
+  ) +
+  geom_text(
+    data = cumulative_ctr %>% dplyr::slice_tail(n = 1),
+    aes(
+      x = date, y = cumulative_fund_return, fill = NULL,
+      label = scales::percent(cumulative_fund_return, accuracy = 0.1)
+    ),
+    color = "black",
+    size = 3.5,
+    hjust = -0.15,
+    show.legend = FALSE
+  ) +
+  geom_hline(yintercept = 0, color = "black", linewidth = 0.3) +
+  scale_x_date(
+    date_breaks = "1 year",
+    date_labels = "%Y",
+    expand = expansion(mult = c(0.02, 0.07))
+  ) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(
+    values = ctr_palette,
+    guide = guide_legend(reverse = TRUE)
+  ) +
+  labs(
+    title = paste0("Cumulative Contribution to Return: ", target_ticker),
+    subtitle = paste0(
+      "Out-of-sample decomposition (lagged betas) -- ",
+      length(factor_cols), "-factor model, ",
+      roll_window_monthly, "-month window"
+    ),
+    x = "",
+    y = "Cumulative Return",
+    caption = "Black line = Total cumulative return | Data: FRED, AQR, Alpha Vantage"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor.x = element_blank(),
+    panel.grid.major.y = element_line(color = "grey80"),
+    panel.grid.minor.y = element_blank(),
+    plot.title = element_text(face = "bold", size = 14),
+    plot.subtitle = element_text(size = 12),
+    plot.caption = element_text(size = 8, color = "grey40"),
+    legend.position = "bottom",
+    legend.title = element_blank()
+  )
+
+print(p4)
+
+# ============================================================================
+# ANALYSIS 5: FACTOR EXPOSURE DISTRIBUTION
+# ============================================================================
+
+message("\n========================================")
+message("ANALYSIS 5: FACTOR EXPOSURE DISTRIBUTION")
+message("========================================")
+
+viz_box <- target_exposure %>%
+  dplyr::select(date, dplyr::all_of(factor_cols)) %>%
+  tidyr::pivot_longer(-date, names_to = "factor", values_to = "beta") %>%
+  dplyr::mutate(
+    factor_label = factor(factor_labels[factor], levels = factor_order)
+  )
+
+latest_betas <- viz_box %>%
+  dplyr::group_by(factor_label) %>%
+  dplyr::filter(date == max(date)) %>%
+  dplyr::ungroup()
+
+p5 <- viz_box %>%
+  ggplot(aes(x = factor_label, y = beta)) +
+  geom_hline(yintercept = 0, color = "black", linewidth = 0.3) +
+  geom_boxplot(
+    aes(fill = factor_label),
+    alpha = 0.6,
+    outlier.size = 0.8,
+    outlier.alpha = 0.4,
+    show.legend = FALSE
+  ) +
+  geom_point(
+    data = latest_betas,
+    color = "#d4a017",
+    fill = "#d4a017",
+    shape = 23,
+    size = 3.5,
+    stroke = 0.8
+  ) +
+  scale_fill_manual(values = factor_palette) +
+  labs(
+    title = paste0("Factor Exposure Distribution: ", target_ticker),
+    subtitle = paste0(
+      "Rolling ", roll_window_monthly, "-month betas | ",
+      "Gold diamond = latest (", format(max(target_exposure$date), "%b %Y"), ")"
+    ),
+    x = "",
+    y = "Factor Exposure (Beta)",
+    caption = "Data: FRED, AQR, Alpha Vantage"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.grid.major.y = element_line(color = "grey80"),
+    plot.title = element_text(face = "bold", size = 14),
+    plot.subtitle = element_text(size = 11),
+    plot.caption = element_text(size = 8, color = "grey40"),
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 9)
+  )
+
+print(p5)
 
 # ============================================================================
 # SUMMARY
