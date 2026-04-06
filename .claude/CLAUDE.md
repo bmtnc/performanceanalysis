@@ -76,3 +76,4 @@ Functions validate inputs at entry: `validate_tickers()` for ticker vectors, `va
 - `library()` calls are acceptable in scripts (unlike package code)
 - Configurable parameters at the top of the script
 - Standalone — should run end-to-end via `Rscript`
+- **Do not save plots to files** — scripts should only `print()` plots, not use `ggsave()`. The user will save manually if needed.
