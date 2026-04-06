@@ -87,6 +87,18 @@ beta_shrink_prior <- 1.0 # Vasicek prior beta (Fix 3)
 min_countries <- 8L # Min countries with non-missing signal per month (Fix 4)
 api_sleep <- 0.5
 
+# US 10Y TIPS breakeven inflation rate (T10YIE). Used in place of trailing CPI
+# for the US value signal because:
+#   1. Forward-looking (market-implied), not backward-looking
+#   2. Updated daily on FRED vs CPI which lags ~2 months
+#   3. Tenor-matched to the 10Y nominal yield we're subtracting from
+# Non-US countries still use trailing CPI — no equivalent breakeven series on
+# FRED for most developed markets.
+# TODO: Source breakeven or inflation expectations for non-US countries
+# TODO: Japan CPI is stale on FRED since April 2022 (OECD stopped publishing);
+#       need alternative source (BoJ, Statistics Bureau) or exclude JP from value
+us_breakeven_series <- "T10YIE"
+
 # Helper: fetch a single FRED series safely
 fetch_one <- function(series_id) {
   tryCatch(
@@ -173,6 +185,32 @@ if (nrow(au_cpi) > 0) {
     dplyr::bind_rows(au_cpi_monthly)
 }
 
+# 2b. Fetch US breakeven inflation ----
+
+message("Fetching US 10Y TIPS breakeven (T10YIE)...")
+us_breakeven_raw <- fetch_one(us_breakeven_series)
+if (!is.null(us_breakeven_raw)) {
+  # T10YIE is daily; take last observation per month, convert pct to decimal
+  us_breakeven <- us_breakeven_raw |>
+    dplyr::transmute(date, breakeven = value / 100) |>
+    dplyr::filter(!is.na(breakeven)) |>
+    dplyr::mutate(ym = lubridate::floor_date(date, "month")) |>
+    dplyr::arrange(date) |>
+    dplyr::group_by(ym) |>
+    dplyr::slice_tail(n = 1) |>
+    dplyr::ungroup() |>
+    dplyr::transmute(date = ym, breakeven)
+  message(sprintf(
+    "  US breakeven: %s to %s (%d months)",
+    format(min(us_breakeven$date)),
+    format(max(us_breakeven$date)),
+    nrow(us_breakeven)
+  ))
+} else {
+  warning("Failed to fetch T10YIE; US value signal will fall back to trailing CPI")
+  us_breakeven <- tibble::tibble(date = as.Date(character()), breakeven = numeric())
+}
+
 # 3. Save raw data ----
 
 if (!dir.exists(output_dir)) {
@@ -222,8 +260,15 @@ carry_signals <- bond_returns |>
   dplyr::filter(!is.na(rate_3m)) |>
   dplyr::transmute(date, country, carry = yield_10y - rate_3m)
 
-# 5b. Value: real yield = nominal yield - annualized 3yr trailing CPI change
-value_signals <- bond_returns |>
+# 5b. Value: real yield = nominal yield - inflation estimate
+# US: 10Y TIPS breakeven (forward-looking, real-time)
+# Non-US: annualized 3yr trailing CPI change (backward-looking, lagged)
+# TODO: Source breakeven/inflation expectations for non-US countries to
+#       eliminate the ~2 month CPI publication lag that truncates the panel
+
+# Non-US: trailing CPI approach
+value_signals_nonus <- bond_returns |>
+  dplyr::filter(country != "US") |>
   dplyr::left_join(cpi_panel, by = c("date", "country")) |>
   dplyr::arrange(country, date) |>
   dplyr::group_by(country) |>
@@ -236,6 +281,20 @@ value_signals <- bond_returns |>
   dplyr::ungroup() |>
   dplyr::filter(!is.na(real_yield)) |>
   dplyr::transmute(date, country, value = real_yield)
+
+# US: TIPS breakeven approach
+value_signals_us <- bond_returns |>
+  dplyr::filter(country == "US") |>
+  dplyr::left_join(us_breakeven, by = "date") |>
+  dplyr::mutate(real_yield = yield_10y - breakeven) |>
+  dplyr::filter(!is.na(real_yield)) |>
+  dplyr::transmute(date, country, value = real_yield)
+
+value_signals <- dplyr::bind_rows(value_signals_us, value_signals_nonus)
+message(sprintf(
+  "  Value signals: US via breakeven (%d obs), non-US via CPI (%d obs)",
+  nrow(value_signals_us), nrow(value_signals_nonus)
+))
 
 # 5c. Momentum: 12-1 month cumulative bond total return
 mom_signals <- bond_returns |>

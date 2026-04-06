@@ -130,14 +130,17 @@ message(paste0(
   paste(factor_cols, collapse = ", ")
 ))
 
-# Build regression dataset (inner join keeps only complete months)
+# Build regression dataset. Replace NAs in factor columns with 0 so that
+# stale factors (e.g. FI/FX value truncated by CPI lag) contribute zero
+# rather than dropping the entire month. This extends the usable date range
+# to the latest available factor (typically EQ or FI carry/momentum).
 target_monthly <- monthly_returns %>%
   dplyr::filter(ticker == target_ticker) %>%
   dplyr::select(date, target_return = return)
 
 regression_data <- target_monthly %>%
   dplyr::inner_join(factor_data, by = "date") %>%
-  tidyr::drop_na() %>%
+  dplyr::mutate(dplyr::across(dplyr::all_of(factor_cols), ~ tidyr::replace_na(.x, 0))) %>%
   dplyr::arrange(date)
 
 # Apply date filtering
@@ -443,11 +446,14 @@ target_returns_ctr <- monthly_returns %>%
   dplyr::filter(ticker == target_ticker) %>%
   dplyr::select(date, return)
 
+factor_data_filled <- factor_data %>%
+  dplyr::mutate(dplyr::across(dplyr::all_of(factor_cols), ~ tidyr::replace_na(.x, 0)))
+
 ctr_data <- calculate_ctr(
   rolling_fit = target_fit,
   dates = regression_data$date,
   fund_returns = target_returns_ctr,
-  factor_returns = factor_data,
+  factor_returns = factor_data_filled,
   factor_cols = factor_cols
 )
 

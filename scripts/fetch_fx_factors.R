@@ -599,6 +599,10 @@ fx_signals <- fx_returns |>
 #
 # PPP rates from OECD (annual), interpolated to monthly using relative CPI.
 # Falls back to rolling-mean RER deviation if PPP data unavailable.
+# TODO: PPP interpolation truncates when CPI runs out (~2 month lag), which
+#       makes FX value the other bottleneck alongside FI value. Options:
+#       1. Forward-fill last PPP estimate (PPP moves slowly, defensible for a few months)
+#       2. Use TIPS breakevens to extend CPI proxy for the US leg of the interpolation
 
 if (exists("ppp_available") && ppp_available) {
   cat("  Using OECD PPP exchange rates for value signal\n")
