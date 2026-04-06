@@ -218,6 +218,8 @@ The FI value signal (real yield = nominal yield − inflation) and FX value sign
 
 ### Available free sources for breakeven inflation, by country
 
+All sources below derive breakeven inflation from the spread between nominal and inflation-linked government bond yields (10Y tenor unless noted). These embed an inflation risk premium and liquidity premium on top of pure inflation expectations, but for a cross-sectional value signal the biases are roughly uniform across countries and cancel in the long/short construction.
+
 #### US — FRED (implemented)
 
 | Series | Description | Frequency |
@@ -229,9 +231,9 @@ The FI value signal (real yield = nominal yield − inflation) and FX value sign
 | `DFII10` | 10Y TIPS real yield (breakeven = nominal − this) | Daily |
 | `EXPINF10YR` | Cleveland Fed 10Y expected inflation (model-based) | Monthly |
 
-#### Euro area (DE, FR, IT, NL, BE as bloc) — ECB Statistical Data Warehouse
+#### Euro area (DE, FR, IT, NL, BE as bloc) — ECB Statistical Data Warehouse (implemented)
 
-The ECB publishes both nominal and real (inflation-linked) euro area benchmark bond yields. Breakeven = nominal − real.
+The ECB publishes euro area aggregate nominal and real benchmark bond yields. Breakeven = nominal − real. The real yield is derived from euro area inflation-linked government bonds (primarily French OATi/OATei and German Bundei, linked to euro area HICP).
 
 | Series | Description | Frequency | API |
 |---|---|---|---|
@@ -239,74 +241,135 @@ The ECB publishes both nominal and real (inflation-linked) euro area benchmark b
 | `FM.M.U2.EUR.4F.BB.R_U2_10Y.YLDA` | Real 10Y euro area benchmark yield | Monthly | ECB SDMX REST |
 
 API base: `https://data-api.ecb.europa.eu/service/data/FM/`
-No authentication required. Add `?lastNObservations=N` and header `Accept: text/csv` for CSV output. Current through March 2026.
+No authentication required. Add header `Accept: text/csv` for CSV output. Response columns: `TIME_PERIOD` (YYYY-MM), `OBS_VALUE` (percent). Data from 1991 to present, current through March 2026.
 
-Limitation: Euro area aggregate only — not available at individual country level (DE, FR, IT, etc.). For the cross-country value signal, all 5 eurozone countries in our panel would share the same breakeven.
+**Confirmed: euro area aggregate only.** Exhaustive search of all 85+ ECB SDMX dataflows found zero country-level inflation-linked bond yields or breakeven series. Queries for DE, FR, IT, NL, BE in place of U2 all return 404. The ECB does not standardize country-level real yield benchmarks because eurozone countries issue linkers at different maturities, reference different inflation indices (French CPI vs euro area HICP), and have varying liquidity. Eurostat also publishes only nominal government bond yields (`irt_lt_gby10_m`), not real yields or breakevens.
 
-#### UK (GB) — Bank of England
+For our FI value signal, all 5 eurozone countries share the single euro area aggregate breakeven.
 
-The BoE publishes nominal, real (from index-linked gilts), and implied inflation yield curves at maturities out to 25+ years.
+#### UK (GB) — Bank of England IADB (implemented)
 
-| Curve | Description | Frequency |
-|---|---|---|
-| Nominal zero-coupon | Fitted from conventional gilts | Daily/Monthly |
-| Real zero-coupon | Fitted from index-linked gilts | Daily/Monthly |
-| Implied inflation | Nominal minus real | Daily/Monthly |
+The BoE publishes fitted yield curves including an implied inflation curve (nominal minus real) derived from conventional gilts and index-linked gilts (linked to RPI). The data is available via a **CSV API endpoint** on the Interactive Analytical Database (IADB) — no manual download, ZIP files, or JavaScript required.
 
-Access: File download only — **no API**. ZIP archives containing spreadsheets.
-URL: `https://www.bankofengland.co.uk/statistics/yield-curves`
-Actively updated, current data available.
+| Series Code | Description | Maturity | Available From |
+|---|---|---|---|
+| `IUDMIZC` | **Implied inflation zero-coupon yield** | 10Y | Jan 1985 |
+| `IUDMNZC` | Nominal zero-coupon yield | 10Y | Jan 1982 |
+| `IUDMRZC` | Real zero-coupon yield | 10Y | Jan 1985 |
+| `IUDSIZC` / `IUDLIZC` | Implied inflation zero-coupon | 5Y / 20Y | Jan 1985 |
+
+Naming convention: `IUD` + maturity (`S`=5Y, `M`=10Y, `L`=20Y) + curve (`N`=nominal, `R`=real, `I`=inflation) + measure (`ZC`=zero-coupon, `PY`=par yield).
+
+API endpoint:
+```
+https://www.bankofengland.co.uk/boeapps/database/_iadb-fromshowcolumns.asp?csv.x=yes
+  &Datefrom=01/Jan/1985
+  &Dateto=31/Dec/2026
+  &SeriesCodes=IUDMIZC
+  &CSVF=TN
+  &UsingCodes=Y
+  &VPD=Y
+  &VFD=N
+```
+
+No authentication. Up to 300 series per request. Response is CSV with `DATE` (DD Mon YYYY format) and series code columns. Values in percent. Daily frequency, updated by noon the next business day. We only need `IUDMIZC` (the BoE pre-computes the breakeven for us).
 
 #### Canada (CA) — Bank of Canada Valet API
 
-| Series | Description | Frequency | API |
+**Maturity mismatch: ~30Y, not 10Y.** Canada's Real Return Bond (RRB) is a long-term (~30-year) instrument. There is no 10-year inflation-linked Canadian government bond, so the Canadian breakeven is structurally a long-term measure, not comparable to the 10Y breakevens from US/UK/ECB/AU.
+
+| Series ID | Description | Frequency | From |
 |---|---|---|---|
-| Real Return Bond yields | Spread vs conventional bonds gives breakeven | Daily | REST JSON/CSV |
-| `CES_C1A_*` series | Consumer inflation expectations (1Y, 2Y, 5Y) | Quarterly | REST JSON/CSV |
+| `STATIC_ATABLE_V122544_V122553` | **Pre-computed monthly breakeven** (long nominal − RRB) | Monthly | 1996 |
+| `BD.CDN.LONG.DQ.YLD` | Long-term (~30Y) nominal benchmark yield | Daily | 2001 |
+| `BD.CDN.RRB.DQ.YLD` | Real Return Bond yield | Daily | 2001 |
+| `BD.CDN.10YR.DQ.YLD` | 10Y nominal benchmark yield (no matching real) | Daily | 2001 |
 
 API base: `https://www.bankofcanada.ca/valet/observations/{series_id}/json`
-No authentication required.
+No authentication required. Query params: `start_date`, `end_date` (YYYY-MM-DD), `order_dir=asc`. JSON response: observations array with `"d"` (date) and `"series_id": {"v": "value"}` (values as strings, need `as.numeric()`).
 
-#### Australia (AU) — Reserve Bank of Australia
+Verified: daily long nominal minus RRB matches the pre-computed monthly breakeven exactly (2.03% for Feb 2026). The 10Y nominal minus RRB gives ~1.56% — incorrect, because the RRB is a ~30Y instrument.
 
-| Source | Description | Frequency |
-|---|---|---|
-| Statistical Table F16 | Individual Treasury Indexed Bond (inflation-linked) yields | Daily |
-| Statistical Table F17 | Nominal zero-coupon yield curve | Daily |
+#### Australia (AU) — Reserve Bank of Australia (implemented)
 
-Breakeven derived by interpolating F16 indexed bond yields to match nominal maturities from F17.
-URLs: `https://www.rba.gov.au/statistics/tables/csv/f16-data.csv` and `https://www.rba.gov.au/statistics/tables/csv/f17-yields.csv`
-No authentication. CSV download. F16 last updated March 2026.
+The RBA publishes **Table F2 "Capital Market Yields — Government Bonds"** which contains pre-interpolated constant-maturity 10Y yields for both nominal and inflation-indexed bonds. No individual bond interpolation needed (that would be F16).
 
-#### Japan (JP) — Ministry of Finance
+| Column | Series ID | Description | Available From |
+|---|---|---|---|
+| 5 | `FCMYGBAG10D` | 10Y nominal government bond yield | May 2013 |
+| 6 | `FCMYGBAGID` | 10Y inflation-indexed government bond yield | Nov 2014 |
 
-JGB inflation-indexed bond (JGBi) yields published as CSV downloads since 2004.
-URL: `https://www.mof.go.jp/english/policy/jgbs/reference/interest_rate/index.htm`
-File-based, not API-based. Would need to derive breakeven from nominal JGB yield minus JGBi yield.
+Breakeven = column 5 − column 6. Both available from Nov 2014.
 
-Note: The Bank of Japan launched a time-series API in February 2026 (`https://www.stat-search.boj.or.jp/`) but it covers call rates, money market rates, FX, and prices — not JGB yields directly.
+URLs:
+- Daily: `https://www.rba.gov.au/statistics/tables/csv/f2-data.csv`
+- Monthly: `https://www.rba.gov.au/statistics/tables/csv/f2.1-data.csv`
 
-#### Countries with no free breakeven source
+No authentication. CSV download. Parsing notes:
+- UTF-8 with BOM (`fileEncoding = "UTF-8-BOM"` in `read.csv()`)
+- Skip 10 header rows (`skip = 10, header = TRUE`)
+- Date format: `DD-Mon-YYYY` (parse with `as.Date(x, format = "%d-%b-%Y")`)
+- Missing values are empty strings (handled automatically by `read.csv()`)
+- ~2,841 daily observations (Nov 2014–Mar 2026), 13 minor gaps around holidays
+
+Validation: RBA also publishes a quarterly pre-computed breakeven in Table G3 (`g3-data.csv`, series `GBONYLD`). Our computed breakeven matches (e.g., 2.30% for Q4 2025 vs 4.740 − 2.436 = 2.304% from F2).
+
+#### Japan (JP) — Multiple sources required
+
+The MOF publishes **nominal JGB yields only** as direct-download CSV files. JGBi (inflation-indexed) yields are **not published by the MOF** in any downloadable format. The BoJ API (launched Feb 2026) covers call rates, money market rates, FX, and prices — not JGB yields. Two sources are needed to compute the breakeven:
+
+**Nominal yields — MOF CSV (direct download, no auth):**
+
+| File | URL | Frequency | From |
+|---|---|---|---|
+| Full history | `https://www.mof.go.jp/english/policy/jgbs/reference/interest_rate/historical/jgbcme_all.csv` | Daily | Sep 1974 |
+| Current month | `https://www.mof.go.jp/english/policy/jgbs/reference/interest_rate/jgbcme.csv` | Daily | Current month |
+
+Format: Row 1 = units header, Row 2 = column names (`Date,1Y,2Y,...,10Y,...,40Y`). Date format: `YYYY/M/D`. Values in percent. Dashes (`-`) for missing data in early periods.
+
+**Real yields / breakeven — ECB (historical backfill, stale) + BB.JBTS (current, scraping):**
+
+ECB publishes Japan 10Y real yield (`FM.M.JP.JPY.4F.BB.R_JP10YT_RR.YLDA`) and nominal (`FM.M.JP.JPY.4F.BB.JP10YT_RR.YLDA`) via the same SDMX API as the euro area series. Monthly. However, the **real yield series is stale since February 2025** — over a year behind.
+
+Japan Bond Trading Co. (BB.JBTS) at `https://www.bb.jbts.co.jp/en/historical/marketdata05.html` publishes daily 10Y nominal, 10Y inflation-linked, and pre-computed breakeven inflation rates from July 2023 to present. Data is embedded in static JavaScript arrays in the HTML source (Highcharts `initChart()` call). No CAPTCHA or login — `httr::GET()` + regex extraction is feasible but requires HTML scraping.
+
+**Recommended approach:** ECB API for historical backfill (monthly, back to ~2004), BB.JBTS scraping for current data (daily, Jul 2023–present).
+
+#### Countries with no free breakeven source — regression-estimated (implemented)
 
 | Country | Status |
 |---|---|
-| Sweden (SE) | Issues inflation-linked bonds but Riksbank API only publishes nominal yields |
-| Switzerland (CH) | No free source found |
+| Sweden (SE) | Issues inflation-linked bonds (SGB IL) but Riksbank API only publishes nominal yields |
+| Switzerland (CH) | No inflation-linked sovereign bonds; no free source |
 | Denmark (DK) | No free source found |
 | Norway (NO) | Norges Bank publishes quarterly survey expectations (PDF reports only, no API) |
-| New Zealand (NZ) | No free source found |
+| New Zealand (NZ) | No free source; monthly CPI unavailable on FRED (quarterly only, step-interpolated) |
 
-These 5 countries would remain on trailing CPI for the value signal.
+These 5 countries use **regression-estimated breakevens** instead of trailing CPI. The method:
 
-### Implementation priority
+1. Compute 10-year trailing annualized CPI inflation for both the country and the euro area (matching the 10Y breakeven tenor)
+2. Fit a rolling 24-month OLS regression: `country_10yr_inflation ~ euroarea_10yr_inflation`
+3. Predict: plug the ECB 10Y breakeven into the fitted model → estimated country breakeven
 
-1. **Done:** US via `T10YIE` on FRED
-2. **High value:** Euro area via ECB (covers 5 countries with one API call)
-3. **High value:** UK via BoE file download (major bond market)
-4. **Medium:** Canada via Bank of Canada Valet API
-5. **Medium:** Australia via RBA CSV downloads
-6. **Lower:** Japan via MOF CSV (requires scraping, and JP CPI on FRED is stale since 2022 anyway)
-7. **Not feasible:** SE, CH, DK, NO, NZ — stay on trailing CPI
+This works because SE, DK, NO, CH are small open economies with inflation that co-moves with the euro area. The regression captures time-varying sensitivity (e.g., Switzerland's structural deflation bias, the DKK/EUR peg). NZ co-moves less with the euro area — once Australian breakevens are integrated, NZ should switch to using AU as the predictor.
+
+Domain shift caveat: the regression is fitted on backward-looking realized CPI but applied to a forward-looking market-implied breakeven. For the cross-sectional value signal, this bias is roughly constant across countries and cancels in the long/short construction.
+
+Latest regression betas (as of April 2026): SE 0.97, CH 0.52, DK 0.59, NO 0.34, NZ 0.87. These are economically sensible — Switzerland at 0.52 reflects structurally lower inflation; Sweden near 1.0 reflects close EU integration; Norway's low beta but high intercept reflects oil-driven idiosyncratic inflation.
+
+### Implementation status
+
+| Source | Country/Countries | Tenor | Script | Status |
+|---|---|---|---|---|
+| FRED `T10YIE` | US | 10Y | `fetch_breakeven_inflation.R` | Done |
+| ECB SDMX API | DE, FR, IT, NL, BE (aggregate) | 10Y | `fetch_breakeven_inflation.R` | Done |
+| BoE IADB | GB | 10Y | `fetch_breakeven_inflation.R` | Done |
+| RBA Table F2 | AU | 10Y | `fetch_breakeven_inflation.R` | Done |
+| Bank of Canada Valet | CA | **~30Y** (mismatch) | `fetch_breakeven_inflation.R` | Done |
+| Regression (CPI ~ EA) | SE, CH, DK, NO, NZ | 10Y (estimated) | `fetch_breakeven_inflation.R` | Done |
+| ECB + BB.JBTS scrape | JP | 10Y | — | TODO |
+
+Output: `data/fred/breakeven_inflation.rds` — panel with columns `date`, `country`, `breakeven` (decimal).
 
 ---
 
