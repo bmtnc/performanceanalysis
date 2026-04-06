@@ -9,11 +9,12 @@
 # Script Params ----
 
 target_ticker <- "BIMBX"
+# target_ticker <- "VWENX"
 
 roll_window_monthly <- 24L # factor regressions (monthly, ~5 years)
 
 # Date range filtering (NULL = use all available data)
-start_date <- NULL
+start_date <- as.Date("2018-01-31")
 end_date <- NULL
 
 # Equity factor geography: "Global", "USA", "Europe", "Pacific", "Global Ex USA"
@@ -259,7 +260,8 @@ viz_exposure <- target_exposure %>%
 
 p1 <- viz_exposure %>%
   ggplot(aes(x = date, y = exposure, fill = factor_label)) +
-  geom_col(width = 25, alpha = 0.85, linewidth = 0) +
+  geom_col(aes(color = factor_label), width = 30, alpha = 0.8, linewidth = 0.25) +
+  scale_color_manual(values = factor_palette, guide = "none") +
   geom_hline(yintercept = 0, color = "black", linewidth = 0.3) +
   scale_x_date(
     date_breaks = "1 year",
