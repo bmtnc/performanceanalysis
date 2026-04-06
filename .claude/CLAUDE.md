@@ -24,6 +24,27 @@ Rscript -e 'devtools::load_all()'
 Rscript scripts/starter_script.R
 ```
 
+## Data Pipeline: Fresh Clone Setup
+
+After cloning and installing dependencies (`renv::restore()`), run these three scripts to fetch and cache all factor data. They can run in parallel — no dependencies between them.
+
+```bash
+# Fetch AQR equity factors (downloads Excel files on first run, then parses)
+Rscript scripts/fetch_aqr_equity_factors.R
+
+# Fetch FI factors from FRED (yields, rates, CPI, TIPS breakevens)
+# Requires FRED_API_KEY env var
+Rscript scripts/fetch_fi_factors.R
+
+# Fetch FX factors from FRED + OECD PPP (exchange rates, interest rates, CPI)
+# Requires FRED_API_KEY env var
+Rscript scripts/fetch_fx_factors.R
+```
+
+Cached data lands in `data/aqr/*.rds` and `data/fred/*.rds`. Once cached, analysis scripts (`scripts/hf_factor_analysis.R`, etc.) run without API calls. Re-run the fetch scripts to refresh data.
+
+API keys: `FRED_API_KEY` and `ALPHA_VANTAGE_API_KEY` are set as env vars in the user's `.zshrc`.
+
 ## Architecture
 
 This is an R package (`performanceanalysis`) for quantitative factor-based performance analysis. It has two layers:
