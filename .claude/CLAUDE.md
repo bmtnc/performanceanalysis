@@ -96,6 +96,7 @@ Use `avpipeline::validate_*()` helpers for common input validation (data frame t
 ### Scripts (`scripts/`)
 
 - `library()` calls are acceptable in scripts (unlike package code)
+- **Pipe operator**: Use `%>%` (magrittr), not `|>` (native pipe) — same convention as package code
 - Configurable parameters at the top of the script
 - Standalone — should run end-to-end via `Rscript`
 - **Do not save plots to files** — scripts should only `print()` plots, not use `ggsave()`. The user will save manually if needed.
