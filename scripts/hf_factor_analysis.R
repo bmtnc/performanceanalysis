@@ -446,6 +446,14 @@ target_returns_ctr <- monthly_returns %>%
   dplyr::filter(ticker == target_ticker) %>%
   dplyr::select(date, return)
 
+# Fill NA factor returns with 0, matching the treatment in regression_data
+# (line 143). Stale factors (e.g. FI/FX value when CPI lags by ~2 months)
+# have trailing NAs. Without this fill, beta * NA = NA propagates through
+# rowSums into total_explained and residual, and carino_link's cumsum turns
+# all subsequent values NA — which are then silently replaced with 0 (line 63
+# of carino_link.R). That causes accumulated cumulative components to jump
+# to zero in a single period, producing the artificial ~30% idiosyncratic
+# spike visible around the stale-factor cutoff date.
 factor_data_filled <- factor_data %>%
   dplyr::mutate(dplyr::across(dplyr::all_of(factor_cols), ~ tidyr::replace_na(.x, 0)))
 
