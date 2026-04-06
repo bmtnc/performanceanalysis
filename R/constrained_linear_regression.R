@@ -11,7 +11,7 @@
 #' @param sum_to_one   Logical scalar; if \code{TRUE} (default) coefficients are constrained to sum to 1.
 #' @param intercept    Logical scalar; if \code{TRUE} an intercept is included (constraints apply only to non-intercept coefficients).
 #'
-#' @return List with components \code{coefficients}, \code{fitted.values}, and \code{residuals}.
+#' @return List with components \code{coefficients}, \code{fitted.values}, \code{residuals}, and \code{r.squared}.
 #' @export
 constrained_linear_regression <- function(
     x,
@@ -67,10 +67,15 @@ constrained_linear_regression <- function(
         coef_vector <- as.vector(betas)
         names(coef_vector) <- colnames(x_design)
         
+        ss_res <- sum(as.vector(residuals)^2)
+        ss_tot <- sum((y - mean(y))^2)
+        r_squared <- 1 - ss_res / ss_tot
+
         return(list(
             coefficients  = coef_vector,
             fitted.values = as.vector(fitted_vals),
-            residuals     = as.vector(residuals)
+            residuals     = as.vector(residuals),
+            r.squared     = r_squared
         ))
     }
     
@@ -107,9 +112,14 @@ constrained_linear_regression <- function(
     coef_vector <- as.vector(betas)
     names(coef_vector) <- colnames(x_design)
     
+    ss_res <- sum(as.vector(residuals)^2)
+    ss_tot <- sum((y - mean(y))^2)
+    r_squared <- 1 - ss_res / ss_tot
+
     list(
         coefficients  = coef_vector,
         fitted.values = as.vector(fitted_vals),
-        residuals     = as.vector(residuals)
+        residuals     = as.vector(residuals),
+        r.squared     = r_squared
     )
 }

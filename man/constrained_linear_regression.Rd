@@ -24,7 +24,7 @@ constrained_linear_regression(
 \item{intercept}{Logical scalar; if \code{TRUE} an intercept is included (constraints apply only to non-intercept coefficients).}
 }
 \value{
-List with components \code{coefficients}, \code{fitted.values}, and \code{residuals}.
+List with components \code{coefficients}, \code{fitted.values}, \code{residuals}, and \code{r.squared}.
 }
 \description{
 Performs a linear regression subject to optional constraints:
