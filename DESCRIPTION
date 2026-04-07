@@ -12,13 +12,17 @@ RoxygenNote: 7.3.2
 Imports:
     avpipeline,
     dplyr,
+    ggplot2,
+    ggrepel,
     httr,
     jsonlite,
-    rlang,
-    tibble,
     quadprog,
+    rlang,
     roll,
-    slider
+    scales,
+    slider,
+    tibble,
+    tidyr
 Remotes:
     bmtnc/avpipeline
 Suggests: 

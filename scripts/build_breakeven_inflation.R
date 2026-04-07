@@ -22,17 +22,16 @@ data_dir <- "data/fred"
 # Regression parameters
 regression_window <- 20L    # Quarters (= 5 years of independent obs)
 
-# Country groupings
-eurozone_countries <- c("DE", "FR", "IT", "NL", "BE")
-ea_regression_countries <- c("SE", "CH", "DK", "NO")
-us_regression_countries <- c("CA")
+# Country groupings for regression
+# US-referenced: eurozone (no free linker data), nordics, Japan, Canada
+us_regression_countries <- c("DE", "FR", "IT", "NL", "BE", "SE", "CH", "DK", "NO", "JP", "CA")
+# AU-referenced: NZ (tightly linked economy)
 au_regression_countries <- c("NZ")
-all_regression_countries <- c(ea_regression_countries, us_regression_countries, au_regression_countries)
+all_regression_countries <- c(us_regression_countries, au_regression_countries)
 
 # Cache paths (must match fetch_breakeven_inflation.R)
 cache_paths <- list(
   us_breakeven = file.path(data_dir, "be_raw_us.rds"),
-  ea_breakeven = file.path(data_dir, "be_raw_ecb.rds"),
   uk_breakeven = file.path(data_dir, "be_raw_boe.rds"),
   au_breakeven = file.path(data_dir, "be_raw_rba.rds"),
   cpi_panel    = file.path(data_dir, "be_raw_cpi.rds")
@@ -51,13 +50,12 @@ if (length(missing) > 0) {
 }
 
 us_breakeven <- readRDS(cache_paths$us_breakeven)
-ea_breakeven <- readRDS(cache_paths$ea_breakeven)
 uk_breakeven <- readRDS(cache_paths$uk_breakeven)
 au_breakeven <- readRDS(cache_paths$au_breakeven)
 cpi_panel    <- readRDS(cache_paths$cpi_panel)
 
-message(sprintf("  US: %d months | EA: %d months | GB: %d months | AU: %d months",
-  nrow(us_breakeven), nrow(ea_breakeven), nrow(uk_breakeven), nrow(au_breakeven)))
+message(sprintf("  US: %d months | GB: %d months | AU: %d months",
+  nrow(us_breakeven), nrow(uk_breakeven), nrow(au_breakeven)))
 message(sprintf("  CPI: %d countries, %s to %s",
   dplyr::n_distinct(cpi_panel$country),
   format(min(cpi_panel$date)), format(max(cpi_panel$date))))
@@ -139,10 +137,9 @@ run_regression_group <- function(country_codes, ref_code, ref_label) {
     dplyr::select(date, country, alpha, beta)
 }
 
-ea_coefs <- run_regression_group(ea_regression_countries, "EA", "EA")
 us_coefs <- run_regression_group(us_regression_countries, "US", "US")
 au_coefs <- run_regression_group(au_regression_countries, "AU", "AU")
-all_coefs <- dplyr::bind_rows(ea_coefs, us_coefs, au_coefs)
+all_coefs <- dplyr::bind_rows(us_coefs, au_coefs)
 
 # 4. Predict country breakevens ----
 # Quarterly coefficients are forward-filled to monthly, then multiplied by the
@@ -180,20 +177,16 @@ expand_quarterly_to_monthly <- function(coefs_df, ref_be_df) {
   dplyr::bind_rows(results)
 }
 
-ea_be_for_pred <- ea_breakeven %>%
-  dplyr::select(date, ref_breakeven = breakeven)
-
 us_be_for_pred <- us_breakeven %>%
   dplyr::select(date, ref_breakeven = breakeven)
 
 au_be_for_pred <- au_breakeven %>%
   dplyr::select(date, ref_breakeven = breakeven)
 
-ea_predicted <- expand_quarterly_to_monthly(ea_coefs, ea_be_for_pred)
 us_predicted <- expand_quarterly_to_monthly(us_coefs, us_be_for_pred)
 au_predicted <- expand_quarterly_to_monthly(au_coefs, au_be_for_pred)
 
-regression_breakeven <- dplyr::bind_rows(ea_predicted, us_predicted, au_predicted)
+regression_breakeven <- dplyr::bind_rows(us_predicted, au_predicted)
 
 for (cc in all_regression_countries) {
   sub <- regression_breakeven %>% dplyr::filter(country == cc)
@@ -202,7 +195,7 @@ for (cc in all_regression_countries) {
       dplyr::filter(country == cc) %>%
       dplyr::slice_tail(n = 1) %>%
       dplyr::pull(beta)
-    ref <- if (cc %in% us_regression_countries) "US" else if (cc %in% au_regression_countries) "AU" else "EA"
+    ref <- if (cc %in% au_regression_countries) "AU" else "US"
     message(sprintf("  %s: %s to %s (%d months, ref=%s, latest beta=%.2f)",
       cc, format(min(sub$date)), format(max(sub$date)),
       nrow(sub), ref, latest_beta))
@@ -215,13 +208,8 @@ for (cc in all_regression_countries) {
 
 message("5. Combining...")
 
-ea_country_breakeven <- do.call(rbind, lapply(eurozone_countries, function(cc) {
-  ea_breakeven %>% dplyr::transmute(date, country = cc, breakeven)
-}))
-
 all_breakeven <- dplyr::bind_rows(
   us_breakeven,
-  ea_country_breakeven,
   uk_breakeven,
   au_breakeven,
   regression_breakeven
@@ -238,10 +226,8 @@ source_label <- function(cc) {
   if (cc == "US") return("FRED T10YIE")
   if (cc == "GB") return("BoE IUDMIZC")
   if (cc == "AU") return("RBA F2")
-  if (cc %in% eurozone_countries) return("ECB aggregate")
-  if (cc %in% us_regression_countries) return("Regr (US ref)")
   if (cc %in% au_regression_countries) return("Regr (AU ref)")
-  return("Regr (EA ref)")
+  return("Regr (US ref)")
 }
 
 summary_df <- all_breakeven %>%
@@ -282,10 +268,8 @@ plot_data <- all_breakeven %>%
       country == "US" ~ "Direct (FRED)",
       country == "GB" ~ "Direct (BoE)",
       country == "AU" ~ "Direct (RBA)",
-      country %in% eurozone_countries ~ "Direct (ECB aggregate)",
-      country %in% us_regression_countries ~ "Regression (US ref)",
       country %in% au_regression_countries ~ "Regression (AU ref)",
-      TRUE ~ "Regression (EA ref)"
+      TRUE ~ "Regression (US ref)"
     ),
     source_type = dplyr::if_else(
       grepl("^Direct", source), "Direct", "Regression-estimated"
@@ -306,8 +290,8 @@ p <- plot_data %>%
   labs(
     title = "10Y Breakeven Inflation by Country",
     subtitle = paste0(
-      "Direct: US (TIPS), GB (BoE), AU (RBA), DE/FR/IT/NL/BE (ECB aggregate) | ",
-      "Regression: SE/CH/DK/NO (EA ref), CA (US ref), NZ (AU ref)"
+      "Direct: US (TIPS), GB (BoE), AU (RBA) | ",
+      "Regression: DE/FR/IT/NL/BE/SE/CH/DK/NO/JP/CA (US ref), NZ (AU ref)"
     ),
     x = "",
     y = "Breakeven Inflation (annualized)",

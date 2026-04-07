@@ -141,6 +141,7 @@ factor_data <- Reduce(
 )
 
 factor_cols <- setdiff(names(factor_data), "date")
+factor_labels <- factor_metadata(factor_cols)$labels
 message(paste0(
   "Using ",
   length(factor_cols),
@@ -183,46 +184,6 @@ message(paste0(
   " to ",
   max(regression_data$date)
 ))
-
-# Visualization setup
-library(ggplot2)
-library(ggrepel)
-library(scales)
-
-# Factor display names and color palette
-factor_labels <- c(
-  fi_carry = "FI Carry",
-  fi_value = "FI Value",
-  fi_mom = "FI Momentum",
-  fi_def = "FI Defensive",
-  fx_carry = "FX Carry",
-  fx_mom = "FX Momentum",
-  fx_value = "FX Value",
-  eq_hml = "EQ Value",
-  eq_bab = "EQ Low Beta",
-  eq_qmj = "EQ Quality",
-  eq_mkt = "EQ Market",
-  eq_smb = "EQ Size",
-  eq_mom = "EQ Momentum"
-)
-
-factor_palette <- c(
-  "FI Carry" = "#08519c",
-  "FI Value" = "#2171b5",
-  "FI Momentum" = "#4292c6",
-  "FI Defensive" = "#6baed6",
-  "FX Carry" = "#006d2c",
-  "FX Momentum" = "#238b45",
-  "FX Value" = "#41ab5d",
-  "EQ Value" = "#a50f15",
-  "EQ Low Beta" = "#cb181d",
-  "EQ Quality" = "#ef3b2c",
-  "EQ Market" = "#d4a017",
-  "EQ Size" = "#fb6a4a",
-  "EQ Momentum" = "#fc9272"
-)
-
-factor_order <- factor_labels[factor_cols]
 
 # ============================================================================
 # ANALYSIS 1: ROLLING FACTOR EXPOSURES (UNCONSTRAINED)
@@ -274,64 +235,9 @@ message(sprintf(
 ))
 message(sprintf("  %-12s: %.3f", "Sum of betas", sum(latest[factor_cols])))
 
-# Visualization 1: Stacked bar of rolling factor exposures
-viz_exposure <- target_exposure %>%
-  dplyr::select(date, dplyr::all_of(factor_cols)) %>%
-  tidyr::pivot_longer(-date, names_to = "factor", values_to = "exposure") %>%
-  dplyr::mutate(
-    factor_label = factor(factor_labels[factor], levels = rev(factor_order))
-  )
-
-p1 <- viz_exposure %>%
-  ggplot(aes(x = date, y = exposure, fill = factor_label)) +
-  geom_col(
-    aes(color = factor_label),
-    width = 30,
-    alpha = 0.8,
-    linewidth = 0.25
-  ) +
-  scale_color_manual(values = factor_palette, guide = "none") +
-  geom_hline(yintercept = 0, color = "black", linewidth = 0.3) +
-  scale_x_date(
-    date_breaks = "1 year",
-    date_labels = "%Y",
-    expand = c(0.02, 0)
-  ) +
-  scale_y_continuous(
-    labels = scales::number_format(accuracy = 0.1)
-  ) +
-  scale_fill_manual(
-    values = factor_palette,
-    guide = guide_legend(reverse = TRUE)
-  ) +
-  labs(
-    title = paste0(
-      "Rolling Factor Exposures: ",
-      target_ticker
-    ),
-    subtitle = paste0(
-      "Unconstrained regression -- ",
-      length(factor_cols),
-      "-factor model, ",
-      roll_window_monthly,
-      "-month window"
-    ),
-    x = "",
-    y = "Factor Exposure (Beta)",
-    caption = "Data: FRED, AQR, Alpha Vantage"
-  ) +
-  theme_minimal(base_size = 12) +
-  theme(
-    panel.grid.major.x = element_blank(),
-    panel.grid.minor.x = element_blank(),
-    panel.grid.major.y = element_line(color = "grey80"),
-    panel.grid.minor.y = element_blank(),
-    plot.title = element_text(face = "bold", size = 14),
-    plot.subtitle = element_text(size = 12),
-    plot.caption = element_text(size = 8, color = "grey40"),
-    legend.position = "bottom",
-    legend.title = element_blank()
-  )
+p1 <- plot_rolling_exposures(
+  target_exposure, factor_cols, target_ticker, roll_window_monthly
+)
 
 print(p1)
 
@@ -343,56 +249,7 @@ message("\n========================================")
 message("ANALYSIS 2: ROLLING ALPHA")
 message("========================================")
 
-alpha_data <- target_exposure %>%
-  dplyr::select(date, alpha) %>%
-  dplyr::mutate(alpha_ann = alpha * 12)
-
-p2 <- alpha_data %>%
-  ggplot(aes(x = date, y = alpha_ann)) +
-  geom_col(
-    aes(fill = alpha_ann > 0),
-    width = 25,
-    alpha = 0.8,
-    show.legend = FALSE
-  ) +
-  geom_hline(yintercept = 0, color = "black", linewidth = 0.3) +
-  geom_point(
-    data = . %>% dplyr::slice_tail(n = 1),
-    color = "black",
-    size = 2
-  ) +
-  geom_text_repel(
-    data = . %>% dplyr::slice_tail(n = 1),
-    aes(label = scales::percent(alpha_ann, accuracy = 0.1)),
-    nudge_x = 30,
-    direction = "y",
-    segment.color = NA,
-    size = 3.5
-  ) +
-  scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
-  scale_y_continuous(labels = scales::percent_format()) +
-  scale_fill_manual(values = c("TRUE" = "#2171b5", "FALSE" = "#cb181d")) +
-  labs(
-    title = paste0("Rolling Alpha: ", target_ticker),
-    subtitle = paste0(
-      "Annualized intercept from ",
-      roll_window_monthly,
-      "-month unconstrained regression"
-    ),
-    x = "",
-    y = "Alpha (annualized)",
-    caption = "Data: FRED, AQR, Alpha Vantage"
-  ) +
-  theme_minimal(base_size = 12) +
-  theme(
-    panel.grid.major.x = element_blank(),
-    panel.grid.minor.x = element_blank(),
-    panel.grid.major.y = element_line(color = "grey80"),
-    panel.grid.minor.y = element_blank(),
-    plot.title = element_text(face = "bold", size = 14),
-    plot.subtitle = element_text(size = 12),
-    plot.caption = element_text(size = 8, color = "grey40")
-  )
+p2 <- plot_rolling_alpha(target_exposure, target_ticker, roll_window_monthly)
 
 print(p2)
 
@@ -427,54 +284,6 @@ message(sprintf(
 ))
 message(sprintf("  %-12s: %.4f", "R-squared", full_fit$r.squared))
 message(sprintf("  %-12s: %.3f", "Sum of betas", sum(full_coefs[factor_cols])))
-
-# Visualization 3: Full-sample coefficient bar chart
-coef_df <- tibble::tibble(
-  factor = factor_cols,
-  factor_label = factor(factor_labels[factor_cols], levels = factor_order),
-  exposure = full_coefs[factor_cols]
-)
-
-p3 <- coef_df %>%
-  ggplot(aes(x = factor_label, y = exposure, fill = factor_label)) +
-  geom_col(alpha = 0.85, show.legend = FALSE) +
-  geom_hline(yintercept = 0, color = "black", linewidth = 0.3) +
-  geom_text(
-    aes(
-      label = sprintf("%+.3f", exposure),
-      vjust = ifelse(exposure >= 0, -0.5, 1.5)
-    ),
-    size = 3
-  ) +
-  scale_fill_manual(values = factor_palette) +
-  labs(
-    title = paste0("Full-Sample Factor Exposures: ", target_ticker),
-    subtitle = paste0(
-      "Unconstrained regression | ",
-      nrow(regression_data),
-      " months | ",
-      "R² = ",
-      sprintf("%.1f%%", full_fit$r.squared * 100),
-      " | Alpha = ",
-      sprintf("%+.2f%%", full_coefs["alpha"] * 12 * 100),
-      " ann."
-    ),
-    x = "",
-    y = "Factor Exposure (Beta)",
-    caption = "Data: FRED, AQR, Alpha Vantage"
-  ) +
-  theme_minimal(base_size = 12) +
-  theme(
-    panel.grid.major.x = element_blank(),
-    panel.grid.minor = element_blank(),
-    panel.grid.major.y = element_line(color = "grey80"),
-    plot.title = element_text(face = "bold", size = 14),
-    plot.subtitle = element_text(size = 11),
-    plot.caption = element_text(size = 8, color = "grey40"),
-    axis.text.x = element_text(angle = 45, hjust = 1, size = 9)
-  )
-
-print(p3)
 
 # ============================================================================
 # ANALYSIS 4: CUMULATIVE CONTRIBUTION TO RETURN
@@ -517,104 +326,9 @@ cumulative_ctr <- calculate_cumulative_ctr(ctr_data, ctr_col_names)
 message(paste0("CTR observations: ", nrow(ctr_data)))
 message(paste0("Date range: ", min(ctr_data$date), " to ", max(ctr_data$date)))
 
-# Combine alpha + residual into "Idiosyncratic" for plotting
-ctr_plot_labels <- c(
-  idiosyncratic = "Idiosyncratic",
-  setNames(paste0(factor_labels[factor_cols]), ctr_col_names)
+p4 <- plot_cumulative_ctr(
+  cumulative_ctr, factor_cols, target_ticker, roll_window_monthly
 )
-
-ctr_palette <- c(
-  "Idiosyncratic" = "Black",
-  factor_palette
-)
-
-ctr_plot_order <- unname(ctr_plot_labels)
-
-viz_ctr <- cumulative_ctr %>%
-  dplyr::mutate(
-    cumulative_idiosyncratic = cumulative_alpha_ctr + cumulative_residual
-  ) %>%
-  dplyr::select(
-    date,
-    cumulative_idiosyncratic,
-    dplyr::all_of(paste0("cumulative_", ctr_col_names))
-  ) %>%
-  tidyr::pivot_longer(-date, names_to = "component", values_to = "value") %>%
-  dplyr::mutate(
-    component_name = gsub("^cumulative_", "", component),
-    label = factor(
-      ctr_plot_labels[component_name],
-      levels = rev(ctr_plot_order)
-    )
-  )
-
-p4 <- viz_ctr %>%
-  ggplot(aes(x = date, y = value, fill = label)) +
-  geom_col(aes(color = label), width = 30, alpha = 0.8, linewidth = 0.25) +
-  scale_color_manual(values = ctr_palette, guide = "none") +
-  geom_line(
-    data = cumulative_ctr,
-    aes(x = date, y = cumulative_fund_return, fill = NULL),
-    color = "black",
-    linewidth = 0.7,
-    show.legend = FALSE
-  ) +
-  geom_point(
-    data = cumulative_ctr %>% dplyr::slice_tail(n = 1),
-    aes(x = date, y = cumulative_fund_return, fill = NULL),
-    color = "black",
-    size = 2.5,
-    show.legend = FALSE
-  ) +
-  geom_text(
-    data = cumulative_ctr %>% dplyr::slice_tail(n = 1),
-    aes(
-      x = date,
-      y = cumulative_fund_return,
-      fill = NULL,
-      label = scales::percent(cumulative_fund_return, accuracy = 0.1)
-    ),
-    color = "black",
-    size = 3.5,
-    hjust = -0.15,
-    show.legend = FALSE
-  ) +
-  geom_hline(yintercept = 0, color = "black", linewidth = 0.3) +
-  scale_x_date(
-    date_breaks = "1 year",
-    date_labels = "%Y",
-    expand = expansion(mult = c(0.02, 0.07))
-  ) +
-  scale_y_continuous(labels = scales::percent_format()) +
-  scale_fill_manual(
-    values = ctr_palette,
-    guide = guide_legend(reverse = TRUE)
-  ) +
-  labs(
-    title = paste0("Cumulative Contribution to Return: ", target_ticker),
-    subtitle = paste0(
-      "Out-of-sample decomposition (lagged betas) -- ",
-      length(factor_cols),
-      "-factor model, ",
-      roll_window_monthly,
-      "-month window"
-    ),
-    x = "",
-    y = "Cumulative Return",
-    caption = "Black line = Total cumulative return | Data: FRED, AQR, Alpha Vantage"
-  ) +
-  theme_minimal(base_size = 12) +
-  theme(
-    panel.grid.major.x = element_blank(),
-    panel.grid.minor.x = element_blank(),
-    panel.grid.major.y = element_line(color = "grey80"),
-    panel.grid.minor.y = element_blank(),
-    plot.title = element_text(face = "bold", size = 14),
-    plot.subtitle = element_text(size = 12),
-    plot.caption = element_text(size = 8, color = "grey40"),
-    legend.position = "bottom",
-    legend.title = element_blank()
-  )
 
 print(p4)
 
@@ -626,61 +340,9 @@ message("\n========================================")
 message("ANALYSIS 5: FACTOR EXPOSURE DISTRIBUTION")
 message("========================================")
 
-viz_box <- target_exposure %>%
-  dplyr::select(date, dplyr::all_of(factor_cols)) %>%
-  tidyr::pivot_longer(-date, names_to = "factor", values_to = "beta") %>%
-  dplyr::mutate(
-    factor_label = factor(factor_labels[factor], levels = factor_order)
-  )
-
-latest_betas <- viz_box %>%
-  dplyr::group_by(factor_label) %>%
-  dplyr::filter(date == max(date)) %>%
-  dplyr::ungroup()
-
-p5 <- viz_box %>%
-  ggplot(aes(x = factor_label, y = beta)) +
-  geom_hline(yintercept = 0, color = "black", linewidth = 0.3) +
-  geom_boxplot(
-    aes(fill = factor_label),
-    alpha = 0.6,
-    outlier.size = 0.8,
-    outlier.alpha = 0.4,
-    show.legend = FALSE
-  ) +
-  geom_point(
-    data = latest_betas,
-    color = "#d4a017",
-    fill = "#d4a017",
-    shape = 23,
-    size = 3.5,
-    stroke = 0.8
-  ) +
-  scale_fill_manual(values = factor_palette) +
-  labs(
-    title = paste0("Factor Exposure Distribution: ", target_ticker),
-    subtitle = paste0(
-      "Rolling ",
-      roll_window_monthly,
-      "-month betas | ",
-      "Gold diamond = latest (",
-      format(max(target_exposure$date), "%b %Y"),
-      ")"
-    ),
-    x = "",
-    y = "Factor Exposure (Beta)",
-    caption = "Data: FRED, AQR, Alpha Vantage"
-  ) +
-  theme_minimal(base_size = 12) +
-  theme(
-    panel.grid.major.x = element_blank(),
-    panel.grid.minor = element_blank(),
-    panel.grid.major.y = element_line(color = "grey80"),
-    plot.title = element_text(face = "bold", size = 14),
-    plot.subtitle = element_text(size = 11),
-    plot.caption = element_text(size = 8, color = "grey40"),
-    axis.text.x = element_text(angle = 45, hjust = 1, size = 9)
-  )
+p5 <- plot_exposure_distribution(
+  target_exposure, factor_cols, target_ticker, roll_window_monthly
+)
 
 print(p5)
 
