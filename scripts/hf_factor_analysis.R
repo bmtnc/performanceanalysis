@@ -17,7 +17,7 @@ start_date <- as.Date("2018-01-31")
 end_date <- NULL
 
 # Equity factor geography: "Global", "USA", "Europe", "Pacific", "Global Ex USA"
-equity_geography <- "USA"
+equity_geography <- "Global"
 
 # Toggle asset class factor groups
 use_fi_factors <- TRUE
@@ -59,10 +59,7 @@ daily_returns <- calculate_log_returns(all_data)
 monthly_returns <- daily_returns %>%
   dplyr::mutate(month = lubridate::floor_date(date, "month")) %>%
   dplyr::group_by(ticker, month) %>%
-  dplyr::summarise(
-    return = exp(sum(log(1 + return))) - 1,
-    .groups = "drop"
-  ) %>%
+  dplyr::summarise(return = compound_returns(return), .groups = "drop") %>%
   dplyr::rename(date = month)
 
 # Build combined factor matrix (dates normalized to first-of-month)

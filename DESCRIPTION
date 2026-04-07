@@ -13,6 +13,7 @@ Imports:
     avpipeline,
     dplyr,
     ggplot2,
+    lubridate,
     ggrepel,
     httr,
     jsonlite,
