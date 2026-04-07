@@ -10,20 +10,51 @@ We build FI and FX factors from scratch using free public data (FRED, OECD). For
 
 ## Validation Summary
 
-Final correlations between our factor returns and AQR's published data, after all fixes:
+Correlations between our factor returns and AQR's "Century of Factor Premia Monthly" dataset (as of April 2026). AQR data ends December 2024; correlations computed over the overlapping period.
 
-| Factor | Correlation | Our Ann. Mean | Our Ann. Vol | Our SR | Status |
-|---|---|---|---|---|---|
-| **FX Carry** | **0.91** | +3.24% | 7.66% | 0.42 | Excellent replication |
-| **FX Momentum** | **0.83** | +0.76% | 7.84% | 0.10 | Strong replication |
-| **FX Value** | **0.76** | +2.94% | 7.12% | 0.41 | Good replication |
-| **FI Value** | **0.56** | +2.41% | 3.35% | 0.72 | Moderate — data-constrained |
-| **FI Momentum** | **0.44** | -0.49% | 5.33% | -0.09 | Moderate — data-constrained |
-| **FI Carry** | **0.38** | -0.10% | 5.01% | -0.02 | Moderate — data-constrained |
-| **FI Defensive** | **0.33** | -0.16% | 5.24% | -0.03 | Moderate — data-constrained |
-| **Equity factors** | **1.00** | — | — | — | AQR pre-built (identical) |
+### FX Factors
 
-FX factors achieve 0.76–0.91 correlation — strong replications given the data constraints. FI factors are structurally limited to ~0.35–0.56 by the underlying yield data source (see Fixed Income section below). Equity factors are AQR's own data and match by definition.
+| Factor | Overlap | N | Corr | Our Mean | Our Vol | Our SR | AQR Mean | AQR Vol | AQR SR |
+|---|---|---|---|---|---|---|---|---|---|
+| FX Carry | 1990–2024 | 417 | **0.91** | +3.20% | 7.74% | +0.41 | +2.85% | 7.20% | +0.40 |
+| FX Momentum | 1991–2024 | 406 | **0.83** | +0.67% | 7.96% | +0.08 | +0.33% | 6.73% | +0.05 |
+| FX Value | 1990–2024 | 418 | **0.76** | +2.91% | 7.12% | +0.41 | +3.09% | 5.59% | +0.55 |
+
+FX factors achieve 0.76–0.91 correlation — strong replications. Main gap is universe size (9 G10 currencies vs AQR's ~20 including legacy EUR).
+
+### FI Factors
+
+| Factor | Overlap | N | Corr | Our Mean | Our Vol | Our SR | AQR Mean | AQR Vol | AQR SR |
+|---|---|---|---|---|---|---|---|---|---|
+| FI Value | 2003–2024 | 261 | **0.57** | +2.68% | 3.14% | +0.85 | +0.96% | 3.65% | +0.26 |
+| FI Carry | 1982–2024 | 515 | **0.44** | -0.97% | 4.69% | -0.21 | +1.29% | 4.13% | +0.31 |
+| FI Momentum | 1961–2024 | 766 | **0.41** | +0.09% | 4.55% | +0.02 | +0.44% | 4.33% | +0.10 |
+| FI Defensive | 1963–2024 | 743 | **0.32** | -1.10% | 4.47% | -0.25 | -0.75% | 4.00% | -0.19 |
+
+FI factors are structurally limited to ~0.32–0.57 by the underlying yield data (OECD harmonized yields vs GFD total return indices — see Fixed Income section below). FI value uses breakeven inflation (market-implied for US/GB/AU, regression-estimated for others), which is a deliberate departure from AQR's trailing CPI approach. The value overlap starts 2003 due to TIPS breakeven availability.
+
+### Equity: Stock Selection (AQR pre-built)
+
+| Factor | Overlap | N | Corr | Our Mean | Our Vol | Our SR | AQR Mean | AQR Vol | AQR SR |
+|---|---|---|---|---|---|---|---|---|---|
+| US Value (HML) | 1926–2024 | 1182 | **1.00** | +4.06% | 14.82% | +0.27 | +4.06% | 14.82% | +0.27 |
+| US Defensive (BAB) | 1930–2024 | 1129 | **1.00** | +7.95% | 11.15% | +0.71 | +7.95% | 11.15% | +0.71 |
+| US Momentum (Large Cap) | 1980–2024 | 540 | **0.13** | +13.95% | 17.70% | +0.79 | +7.11% | 15.19% | +0.47 |
+| Intl Value (HML) | 1984–2024 | 486 | **1.00** | +5.00% | 9.57% | +0.52 | +4.99% | 9.58% | +0.52 |
+| Intl Defensive (BAB) | 1987–2024 | 455 | **1.00** | +9.05% | 9.44% | +0.96 | +8.98% | 9.43% | +0.95 |
+| Intl Momentum | 1990–2024 | 420 | **-0.08** | +7.15% | 16.42% | +0.44 | +9.07% | 11.96% | +0.76 |
+
+Value and defensive are identical (sourced from AQR's HML Devil and BAB datasets). Momentum does not match — our `aqr_momentum_factors.rds` (from AQR's Momentum Indices dataset) contains absolute momentum returns, not the long/short factor premia used in the Century dataset. These are different constructions.
+
+### Equity: Country Indices
+
+| Factor | Overlap | N | Corr | Our Mean | Our Vol | Our SR | AQR Mean | AQR Vol | AQR SR |
+|---|---|---|---|---|---|---|---|---|---|
+| Global Market (MKT) | 1984–2024 | 492 | **0.86** | +6.71% | 15.41% | +0.44 | +7.12% | 14.58% | +0.49 |
+| Global Value (HML) | 1984–2024 | 486 | **0.26** | +3.62% | 10.28% | +0.35 | +0.87% | 8.78% | +0.10 |
+| Global Defensive (BAB) | 1987–2024 | 455 | **0.30** | +8.57% | 9.87% | +0.87 | +1.65% | 8.55% | +0.19 |
+
+Equity indices factors in the Century dataset are *country-level* allocation factors (long/short country equity indices), not stock selection. Our Global HML/BAB are stock-selection aggregates across countries, which is a different concept — low correlations are expected.
 
 ---
 
@@ -392,6 +423,30 @@ CA, CH, NZ, DK, FR respond meaningfully to their reference breakeven. DE is bord
 
 Pipeline: `fetch_breakeven_inflation.R` (fetches & caches raw data) → `build_breakeven_inflation.R` (regressions & final panel).
 Output: `data/fred/breakeven_inflation.rds` — panel with columns `date`, `country`, `breakeven` (decimal).
+
+---
+
+## Date Conventions
+
+Monthly time series use different date stamping conventions depending on the provider. All our internally stored `.rds` files currently use whatever convention the source provides (mostly first-of-month from FRED). When joining to external month-end data (AQR, fund returns, Bloomberg), use the package helper `to_month_end()` to normalize dates.
+
+### Source conventions
+
+| Source | Convention | Example | Used In |
+|---|---|---|---|
+| **FRED** (yields, rates, CPI, breakevens) | First of month | `2025-04-01` = April observation | `fi_raw_yields.rds`, `be_raw_*.rds`, `fx_raw_*.rds` |
+| **OECD SDMX** (PPP rates) | Annual, Jan 1 | `2025-01-01` = 2025 annual PPP | `fx_ppp_rates.rds` (interpolated to monthly, first-of-month) |
+| **ECB SDMX** (euro area yields) | First of month (`YYYY-MM` + `-01`) | `2025-04-01` = April observation | `be_raw_ecb.rds` |
+| **Bank of England IADB** (gilt yields) | Actual business day (daily data) | `2025-04-07` → aggregated to first-of-month | `be_raw_boe.rds` (after `daily_to_monthly`) |
+| **RBA Table F2** (AU bond yields) | Actual business day (daily data) | `2025-04-07` → aggregated to first-of-month | `be_raw_rba.rds` (after `daily_to_monthly`) |
+| **AQR data library** (equity factors, Century) | End of month | `2025-04-30` = April observation | `data/aqr/*.rds`, Century of Factor Premia |
+| **Fund return data / Bloomberg** | End of month | `2025-04-30` = April observation | External, joined at analysis time |
+
+### Our internal convention
+
+All `.rds` files are normalized to **month-end dates** at save time. Each fetch script calls `to_month_end()` (from the package) on FRED/OECD first-of-month dates before writing to disk. AQR equity `.rds` files are natively month-end.
+
+This means all internal data can be joined by `date` directly — no date alignment needed at analysis time.
 
 ---
 
