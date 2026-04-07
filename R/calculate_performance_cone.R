@@ -28,10 +28,17 @@ calculate_performance_cone <- function(returns, sharpe_ratio, volatility,
     is.numeric(n_sigma), n_sigma >= 1
   )
 
+  # Prepend inception row (return = 0) one month before first observation
+  # so cumulative series starts at 0 without a duplicate date
+  inception <- returns[1, ]
+  inception[[date_col]] <- seq.Date(inception[[date_col]], by = "-1 month", length.out = 2)[2]
+  inception[[return_col]] <- 0
+  returns <- dplyr::bind_rows(inception, returns)
+
   dates <- returns[[date_col]]
   rets <- returns[[return_col]]
 
-  # Time in years from first observation
+  # Time in years from inception
   t_years <- as.numeric(difftime(dates, min(dates), units = "days")) / 365.25
 
   # Arithmetic excess return from Sharpe and vol
