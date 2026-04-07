@@ -290,6 +290,8 @@ No authentication required. Query params: `start_date`, `end_date` (YYYY-MM-DD),
 
 Verified: daily long nominal minus RRB matches the pre-computed monthly breakeven exactly (2.03% for Feb 2026). The 10Y nominal minus RRB gives ~1.56% — incorrect, because the RRB is a ~30Y instrument.
 
+**Implementation decision:** Rather than using the ~30Y breakeven (which introduces a term premium mismatch vs the 10Y breakevens from US/UK/ECB/AU), Canada uses the **regression-based approach** with the US as the reference: rolling 24-month OLS of Canadian 10yr trailing CPI on US 10yr trailing CPI, predicted with the US TIPS breakeven. This keeps the 10Y tenor consistent across all countries. Latest beta: 0.34 (Canadian inflation is stable relative to US swings, with a higher intercept doing most of the work).
+
 #### Australia (AU) — Reserve Bank of Australia (implemented)
 
 The RBA publishes **Table F2 "Capital Market Yields — Government Bonds"** which contains pre-interpolated constant-maturity 10Y yields for both nominal and inflation-indexed bonds. No individual bond interpolation needed (that would be F16).
@@ -345,17 +347,41 @@ Japan Bond Trading Co. (BB.JBTS) at `https://www.bb.jbts.co.jp/en/historical/mar
 | Norway (NO) | Norges Bank publishes quarterly survey expectations (PDF reports only, no API) |
 | New Zealand (NZ) | No free source; monthly CPI unavailable on FRED (quarterly only, step-interpolated) |
 
-These 5 countries use **regression-estimated breakevens** instead of trailing CPI. The method:
+These countries use **regression-estimated breakevens** instead of trailing CPI. The method:
 
-1. Compute 10-year trailing annualized CPI inflation for both the country and the euro area (matching the 10Y breakeven tenor)
-2. Fit a rolling 24-month OLS regression: `country_10yr_inflation ~ euroarea_10yr_inflation`
-3. Predict: plug the ECB 10Y breakeven into the fitted model → estimated country breakeven
+1. Compute quarterly CPI percent change from index levels: `CPI_t / CPI_{t-3} - 1`
+2. Annualize by compounding: `(1 + q_change)^4 - 1`
+3. Keep only quarter-end months (Mar/Jun/Sep/Dec) for fully independent, non-overlapping observations
+4. Fit a rolling 20-quarter (5-year) OLS: `country_ann_q_infl ~ reference_ann_q_infl`
+5. Predict: `country_breakeven = alpha + beta * reference_breakeven` (no rescaling — both sides in annualized %)
 
-This works because SE, DK, NO, CH are small open economies with inflation that co-moves with the euro area. The regression captures time-varying sensitivity (e.g., Switzerland's structural deflation bias, the DKK/EUR peg). NZ co-moves less with the euro area — once Australian breakevens are integrated, NZ should switch to using AU as the predictor.
+Quarterly coefficients are forward-filled to monthly for the output panel.
+
+**Why quarterly, not monthly or trailing?** We tested three specifications:
+- *10-year trailing CPI* (original): DW stats of 0.02 — massive autocorrelation from 119/120 month overlap. R-sq of 0.97 was spurious (two persistent series appearing correlated just because they're both trending). Betas unreliable.
+- *Monthly CPI log-changes*: DW ~2.0 (perfect independence) but R-sq near zero for most countries. Monthly inflation is too noisy — the structural co-movement is buried in idiosyncratic monthly variation. The regression collapses to a constant (intercept only), defeating the purpose of incorporating the reference breakeven.
+- *Annualized quarterly CPI changes* (current): DW ~1.8–2.5 (independent, non-overlapping quarters). R-sq of 0.09–0.74 — real but modest explanatory power. Betas are economically sensible and stable. Both Y and X are in the same annualized units as the breakeven, so prediction requires no rescaling.
+
+Two regression groups, each with a different reference:
+- **Euro area reference** (SE, CH, DK, NO, NZ): regressed on EA CPI, predicted with ECB breakeven. These are small open economies with inflation that co-moves with the euro area.
+- **US reference** (CA): regressed on US CPI, predicted with US TIPS breakeven. Canada's economy is tightly linked to the US, and using the US reference avoids the ~30Y maturity mismatch of the Bank of Canada's RRB-based breakeven.
+
+NZ currently uses the euro area as reference. Once Australian breakevens are integrated into the FI value signal, NZ could switch to using AU as the predictor for a tighter fit.
 
 Domain shift caveat: the regression is fitted on backward-looking realized CPI but applied to a forward-looking market-implied breakeven. For the cross-sectional value signal, this bias is roughly constant across countries and cancels in the long/short construction.
 
-Latest regression betas (as of April 2026): SE 0.97, CH 0.52, DK 0.59, NO 0.34, NZ 0.87. These are economically sensible — Switzerland at 0.52 reflects structurally lower inflation; Sweden near 1.0 reflects close EU integration; Norway's low beta but high intercept reflects oil-driven idiosyncratic inflation.
+Latest regression results (20-quarter window, as of April 2026):
+
+| Country | Ref | Alpha | Beta | R-sq | DW |
+|---|---|---|---|---|---|
+| DK | EA | — | 0.91 | 0.58 | 2.39 |
+| CA | US | — | 0.79 | 0.74 | 2.89 |
+| SE | EA | — | 0.63 | 0.29 | 1.66 |
+| CH | EA | — | 0.47 | 0.53 | 2.33 |
+| NZ | EA | — | 0.38 | 0.32 | 1.87 |
+| NO | EA | — | 0.26 | 0.09 | 2.89 |
+
+DK beta of 0.91 reflects the krone/EUR peg. CA at 0.79 reflects tight US-Canada linkage. CH at 0.47 reflects structurally lower Swiss inflation. NO at 0.26 is the weakest fit — Norwegian inflation is largely oil-driven and idiosyncratic to the euro area.
 
 ### Implementation status
 
@@ -365,10 +391,12 @@ Latest regression betas (as of April 2026): SE 0.97, CH 0.52, DK 0.59, NO 0.34, 
 | ECB SDMX API | DE, FR, IT, NL, BE (aggregate) | 10Y | `fetch_breakeven_inflation.R` | Done |
 | BoE IADB | GB | 10Y | `fetch_breakeven_inflation.R` | Done |
 | RBA Table F2 | AU | 10Y | `fetch_breakeven_inflation.R` | Done |
-| Bank of Canada Valet | CA | **~30Y** (mismatch) | `fetch_breakeven_inflation.R` | Done |
-| Regression (CPI ~ EA) | SE, CH, DK, NO, NZ | 10Y (estimated) | `fetch_breakeven_inflation.R` | Done |
+| FRED CPI (8 countries) | regression inputs | — | `fetch_breakeven_inflation.R` | Done |
+| Regression (CPI ~ EA) | SE, CH, DK, NO, NZ | 10Y (estimated) | `build_breakeven_inflation.R` | Done |
+| Regression (CPI ~ US) | CA | 10Y (estimated) | `build_breakeven_inflation.R` | Done |
 | ECB + BB.JBTS scrape | JP | 10Y | — | TODO |
 
+Pipeline: `fetch_breakeven_inflation.R` (fetches & caches raw data) → `build_breakeven_inflation.R` (regressions & final panel).
 Output: `data/fred/breakeven_inflation.rds` — panel with columns `date`, `country`, `breakeven` (decimal).
 
 ---
@@ -419,6 +447,8 @@ Factor returns (.rds)
 | `fetch_fi_factors.R` | FI factor pipeline | FRED (yields, rates, CPI) | 5 `.rds` files in `data/fred/` |
 | `fetch_fx_factors.R` | FX factor pipeline | FRED (FX, rates, CPI) + OECD (PPP) | 7 `.rds` files in `data/fred/` |
 | `fetch_aqr_equity_factors.R` | Parse AQR equity factors | AQR `.xlsx` files | 3 `.rds` files in `data/aqr/` |
+| `fetch_breakeven_inflation.R` | Fetch & cache raw breakeven data | FRED, ECB, BoE, RBA, FRED CPI | 5 `be_raw_*.rds` in `data/fred/` |
+| `build_breakeven_inflation.R` | Regression estimates + final panel | Cached `be_raw_*.rds` | `breakeven_inflation.rds` |
 | `plot_factor_returns.R` | Cumulative return plots | Cached `.rds` files | 3 ggplot objects |
 
 ### Cached Data Files
@@ -436,6 +466,12 @@ Factor returns (.rds)
 - `fx_returns.rds` — FX excess returns (spot + carry)
 - `fx_factor_signals.rds` — Carry, momentum, value signals
 - `fx_factor_returns.rds` — Factor return time series
+- `be_raw_us.rds` — US monthly breakeven (FRED T10YIE)
+- `be_raw_ecb.rds` — Euro area monthly breakeven (ECB nominal - real)
+- `be_raw_boe.rds` — UK monthly breakeven (BoE IUDMIZC)
+- `be_raw_rba.rds` — Australia monthly breakeven (RBA F2)
+- `be_raw_cpi.rds` — CPI panel for regression countries (8 countries)
+- `breakeven_inflation.rds` — Final combined panel (14 countries, monthly)
 
 **`data/aqr/`** — AQR-sourced equity factor data:
 - `hml_factors_monthly.xlsx` — Raw HML Devil download
