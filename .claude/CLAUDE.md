@@ -26,22 +26,22 @@ Rscript scripts/starter_script.R
 
 ## Data Pipeline: Fresh Clone Setup
 
-After cloning and installing dependencies (`renv::restore()`), run these three scripts to fetch and cache all factor data. They can run in parallel — no dependencies between them.
+After cloning and installing dependencies (`renv::restore()`), run these scripts to fetch and cache all factor data.
 
 ```bash
-# Fetch AQR equity factors (downloads Excel files on first run, then parses)
-Rscript scripts/fetch_aqr_equity_factors.R
+# Step 1: These three can run in parallel — no dependencies between them
+Rscript scripts/fetch_aqr_equity_factors.R        # AQR equity factors (Excel downloads)
+Rscript scripts/fetch_breakeven_inflation.R        # Raw breakeven data (FRED, BoE, RBA) + CPI
+Rscript scripts/fetch_fx_factors.R                 # FX factors (FRED + OECD PPP)
 
-# Fetch FI factors from FRED (yields, rates, CPI, TIPS breakevens)
-# Requires FRED_API_KEY env var
-Rscript scripts/fetch_fi_factors.R
+# Step 2: Build breakeven panel from cached raw data (depends on step 1)
+Rscript scripts/build_breakeven_inflation.R        # Regression estimates + final panel
 
-# Fetch FX factors from FRED + OECD PPP (exchange rates, interest rates, CPI)
-# Requires FRED_API_KEY env var
-Rscript scripts/fetch_fx_factors.R
+# Step 3: FI factors (depends on step 2 for breakeven_inflation.rds)
+Rscript scripts/fetch_fi_factors.R                 # FI factors (FRED yields + breakeven panel)
 ```
 
-Cached data lands in `data/aqr/*.rds` and `data/fred/*.rds`. Once cached, analysis scripts (`scripts/hf_factor_analysis.R`, etc.) run without API calls. Re-run the fetch scripts to refresh data.
+All scripts require `FRED_API_KEY` env var except `fetch_aqr_equity_factors.R`. Cached data lands in `data/aqr/*.rds` and `data/fred/*.rds`. Once cached, analysis scripts (`scripts/hf_factor_analysis.R`, etc.) run without API calls. Re-run the fetch scripts to refresh data.
 
 API keys: `FRED_API_KEY` and `ALPHA_VANTAGE_API_KEY` are set as env vars in the user's `.zshrc`.
 
@@ -64,7 +64,8 @@ This is an R package (`performanceanalysis`) for quantitative factor-based perfo
 ### Data flow
 
 - **Equity factors:** Cached AQR downloads in `data/aqr/*.rds` (HML Devil, momentum, century premia, risk-free rate). AQR Excel files have 18 header rows (`readxl::read_excel(..., skip = 18)`).
-- **FI/FX factors:** Cached FRED data in `data/fred/*.rds`. Bond returns approximated from yield changes via 1st-order duration formula.
+- **FI factors:** Cached FRED data in `data/fred/*.rds`. Bond returns approximated from yield changes via exact repricing formula (Swinkels 2019). FI value signal uses breakeven inflation panel (`breakeven_inflation.rds`) produced by the breakeven pipeline (`fetch_breakeven_inflation.R` → `build_breakeven_inflation.R`).
+- **FX factors:** Cached FRED + OECD data in `data/fred/*.rds`.
 - **ETF prices:** Fetched live from Alpha Vantage API (key via `ALPHA_VANTAGE_API_KEY` env var). Rate-limited with 1s+ delays between requests.
 - **FRED API:** Key set as `FRED_API_KEY` env var in user's `.zshrc`.
 

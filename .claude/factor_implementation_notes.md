@@ -207,12 +207,11 @@ The FI value signal (real yield = nominal yield − inflation) and FX value sign
 
 ### Current approach (as of April 2026)
 
-**US FI value:** Uses 10Y TIPS breakeven inflation (`T10YIE` on FRED) instead of trailing CPI. This is an improvement over the CPI approach:
-- Forward-looking (market-implied) vs backward-looking (trailing 3yr CPI)
-- Updated daily on FRED vs CPI's ~2 month lag
-- Tenor-matched to the 10Y nominal yield
-
-**Non-US FI value:** Still uses trailing CPI where available. Countries with stale or missing CPI produce NA value signals for those months.
+**All FI value (15 countries):** Uses breakeven inflation panel (`breakeven_inflation.rds`) for all countries. `fetch_fi_factors.R` no longer fetches CPI or T10YIE directly — it loads the pre-built breakeven panel and computes `real_yield = nominal_yield - breakeven`. This means:
+- US, GB, AU: market-implied breakevens (TIPS, BoE linkers, RBA indexed bonds)
+- DE, FR, IT, NL, BE, SE, CH, DK, NO, JP, CA: regression-estimated from CPI co-movement with US breakeven
+- NZ: regression-estimated from CPI co-movement with AU breakeven
+- Value signal series start later than the old trailing-CPI approach (e.g., US from 2003 vs ~1960s) but are forward-looking and not subject to CPI publication lag
 
 **FX value:** Still uses OECD PPP rates interpolated with CPI. Truncates when CPI runs out. The HF analysis script fills NAs with zero so stale factors don't drop entire months.
 
@@ -231,21 +230,20 @@ All sources below derive breakeven inflation from the spread between nominal and
 | `DFII10` | 10Y TIPS real yield (breakeven = nominal − this) | Daily |
 | `EXPINF10YR` | Cleveland Fed 10Y expected inflation (model-based) | Monthly |
 
-#### Euro area (DE, FR, IT, NL, BE as bloc) — ECB Statistical Data Warehouse (implemented)
+#### Euro area (DE, FR, IT, NL, BE) — NO USABLE FREE SOURCE
 
-The ECB publishes euro area aggregate nominal and real benchmark bond yields. Breakeven = nominal − real. The real yield is derived from euro area inflation-linked government bonds (primarily French OATi/OATei and German Bundei, linked to euro area HICP).
+**The ECB "real yield" series is NOT market-implied.** The series `FM.M.U2.EUR.4F.BB.R_U2_10Y.YLDA` is computed as `nominal yield − year-on-year HICP inflation`, NOT derived from inflation-linked bonds. This means the "breakeven" computed as `nominal − real` cancels out to just `HICP YoY` — i.e., backward-looking realized inflation. Verified by exact arithmetic matching across multiple months (e.g., Oct 2022: nominal 3.184, HICP YoY 10.6%, real = 3.184 − 10.6 = −7.416, which matches the published series exactly). The 9%+ "breakeven" spike in late 2022 was simply the HICP inflation peak, not market expectations.
 
-| Series | Description | Frequency | API |
-|---|---|---|---|
-| `FM.M.U2.EUR.4F.BB.U2_10Y.YLD` | Nominal 10Y euro area benchmark yield | Monthly | ECB SDMX REST |
-| `FM.M.U2.EUR.4F.BB.R_U2_10Y.YLDA` | Real 10Y euro area benchmark yield | Monthly | ECB SDMX REST |
+Additionally, `YLD` vs `YLDA` is a timing difference (end-of-period vs period-average), introducing a minor inconsistency between the nominal and real series.
 
-API base: `https://data-api.ecb.europa.eu/service/data/FM/`
-No authentication required. Add header `Accept: text/csv` for CSV output. Response columns: `TIME_PERIOD` (YYYY-MM), `OBS_VALUE` (percent). Data from 1991 to present, current through March 2026.
+**No country-level inflation-linked bond yields available for free.** Exhaustive search findings:
+- **ECB**: All 85+ SDMX dataflows searched. No inflation-linked bond yields or curves. The ECB yield curve model explicitly excludes linkers. Inflation-linked swap (ILS) rates used internally by the ECB come from Refinitiv and are not redistributed.
+- **Germany (Bundesbank)**: The BBSSY dataflow provides market-observed real yields from individual Bundei bonds via a free API (`api.statistiken.bundesbank.de`). However, there is no 10Y bond — the closest is ~7Y (DE0001030583, maturing 2033). Germany stopped issuing new linkers in 2024. Liquidity halved in 2024.
+- **France (Banque de France)**: Webstat API exists but requires free registration (API key). Unclear whether OATi/OATei yield series are in the catalog. France has the deepest eurozone linker market (18 bonds) but the data may not be publicly accessible even with a key.
+- **Italy**: No confirmed free source. Banca d'Italia Rendistato covers nominals only. BTPei auction results available as individual PDFs only.
+- **Eurostat, OECD, FRED**: None publish eurozone inflation-linked bond yields.
 
-**Confirmed: euro area aggregate only.** Exhaustive search of all 85+ ECB SDMX dataflows found zero country-level inflation-linked bond yields or breakeven series. Queries for DE, FR, IT, NL, BE in place of U2 all return 404. The ECB does not standardize country-level real yield benchmarks because eurozone countries issue linkers at different maturities, reference different inflation indices (French CPI vs euro area HICP), and have varying liquidity. Eurostat also publishes only nominal government bond yields (`irt_lt_gby10_m`), not real yields or breakevens.
-
-For our FI value signal, all 5 eurozone countries share the single euro area aggregate breakeven.
+**Implementation decision:** All 5 eurozone countries use the **regression-based approach** with US TIPS breakeven as reference, alongside the nordics and Japan.
 
 #### UK (GB) — Bank of England IADB (implemented)
 
@@ -290,7 +288,7 @@ No authentication required. Query params: `start_date`, `end_date` (YYYY-MM-DD),
 
 Verified: daily long nominal minus RRB matches the pre-computed monthly breakeven exactly (2.03% for Feb 2026). The 10Y nominal minus RRB gives ~1.56% — incorrect, because the RRB is a ~30Y instrument.
 
-**Implementation decision:** Rather than using the ~30Y breakeven (which introduces a term premium mismatch vs the 10Y breakevens from US/UK/ECB/AU), Canada uses the **regression-based approach** with the US as the reference: rolling 24-month OLS of Canadian 10yr trailing CPI on US 10yr trailing CPI, predicted with the US TIPS breakeven. This keeps the 10Y tenor consistent across all countries. Latest beta: 0.34 (Canadian inflation is stable relative to US swings, with a higher intercept doing most of the work).
+**Implementation decision:** Rather than using the ~30Y breakeven (which introduces a term premium mismatch vs the 10Y breakevens from US/UK/AU), Canada uses the **regression-based approach** with US TIPS breakeven as the reference. See regression section below for methodology and results.
 
 #### Australia (AU) — Reserve Bank of Australia (implemented)
 
@@ -316,38 +314,32 @@ No authentication. CSV download. Parsing notes:
 
 Validation: RBA also publishes a quarterly pre-computed breakeven in Table G3 (`g3-data.csv`, series `GBONYLD`). Our computed breakeven matches (e.g., 2.30% for Q4 2025 vs 4.740 − 2.436 = 2.304% from F2).
 
-#### Japan (JP) — Multiple sources required
+#### Japan (JP) — No usable free source; regression-estimated
 
-The MOF publishes **nominal JGB yields only** as direct-download CSV files. JGBi (inflation-indexed) yields are **not published by the MOF** in any downloadable format. The BoJ API (launched Feb 2026) covers call rates, money market rates, FX, and prices — not JGB yields. Two sources are needed to compute the breakeven:
+No free source provides a clean 10Y breakeven for Japan:
+- **MOF** publishes nominal JGB yields as CSV (`jgbcme_all.csv`, daily, back to 1974) but does NOT publish JGBi (inflation-indexed) yields in any downloadable format.
+- **BoJ API** (launched Feb 2026) covers call rates, money market rates, FX, and prices — not JGB yields.
+- **ECB** publishes a Japan 10Y "real yield" (`FM.M.JP.JPY.4F.BB.R_JP10YT_RR.YLDA`) but this follows the same ex-post `nominal − HICP` construction as the euro area series — not market-implied. Also stale since February 2025.
+- **BB.JBTS** (Japan Bond Trading Co.) publishes daily breakeven data from July 2023, but embedded in HTML/JavaScript requiring scraping.
 
-**Nominal yields — MOF CSV (direct download, no auth):**
+**Implementation decision:** Japan uses the regression-based approach with US TIPS breakeven as reference. However, R-sq is near zero (0.02) with beta of -0.08 — Japanese inflation is essentially uncorrelated with US inflation. The regression output is effectively Japan's own historical average inflation (~0.17% annualized), which doesn't respond to changing US breakevens. This is a known limitation.
 
-| File | URL | Frequency | From |
-|---|---|---|---|
-| Full history | `https://www.mof.go.jp/english/policy/jgbs/reference/interest_rate/historical/jgbcme_all.csv` | Daily | Sep 1974 |
-| Current month | `https://www.mof.go.jp/english/policy/jgbs/reference/interest_rate/jgbcme.csv` | Daily | Current month |
+#### Regression-estimated countries (implemented)
 
-Format: Row 1 = units header, Row 2 = column names (`Date,1Y,2Y,...,10Y,...,40Y`). Date format: `YYYY/M/D`. Values in percent. Dashes (`-`) for missing data in early periods.
+Countries without usable free breakeven sources use regression-estimated breakevens. This includes the eurozone (no free linker data), nordics (no free source), Japan (no free source), and Canada (~30Y maturity mismatch).
 
-**Real yields / breakeven — ECB (historical backfill, stale) + BB.JBTS (current, scraping):**
-
-ECB publishes Japan 10Y real yield (`FM.M.JP.JPY.4F.BB.R_JP10YT_RR.YLDA`) and nominal (`FM.M.JP.JPY.4F.BB.JP10YT_RR.YLDA`) via the same SDMX API as the euro area series. Monthly. However, the **real yield series is stale since February 2025** — over a year behind.
-
-Japan Bond Trading Co. (BB.JBTS) at `https://www.bb.jbts.co.jp/en/historical/marketdata05.html` publishes daily 10Y nominal, 10Y inflation-linked, and pre-computed breakeven inflation rates from July 2023 to present. Data is embedded in static JavaScript arrays in the HTML source (Highcharts `initChart()` call). No CAPTCHA or login — `httr::GET()` + regex extraction is feasible but requires HTML scraping.
-
-**Recommended approach:** ECB API for historical backfill (monthly, back to ~2004), BB.JBTS scraping for current data (daily, Jul 2023–present).
-
-#### Countries with no free breakeven source — regression-estimated (implemented)
-
-| Country | Status |
+| Country | Why no direct breakeven |
 |---|---|
-| Sweden (SE) | Issues inflation-linked bonds (SGB IL) but Riksbank API only publishes nominal yields |
-| Switzerland (CH) | No inflation-linked sovereign bonds; no free source |
-| Denmark (DK) | No free source found |
-| Norway (NO) | Norges Bank publishes quarterly survey expectations (PDF reports only, no API) |
-| New Zealand (NZ) | No free source; monthly CPI unavailable on FRED (quarterly only, step-interpolated) |
+| DE, FR, IT, NL, BE | ECB "real yield" is ex-post (nominal − HICP), not market-implied. No free country-level linker yields. |
+| SE | Issues inflation-linked bonds (SGB IL) but Riksbank API only publishes nominal yields |
+| CH | No inflation-linked sovereign bonds |
+| DK | No free source found |
+| NO | Norges Bank publishes quarterly survey expectations (PDF reports only, no API) |
+| JP | MOF publishes nominal JGB yields only; JGBi yields not in downloadable format |
+| CA | Bank of Canada RRB is ~30Y maturity — no 10Y equivalent |
+| NZ | No free source; monthly CPI unavailable on FRED (quarterly only, step-interpolated) |
 
-These countries use **regression-estimated breakevens** instead of trailing CPI. The method:
+**Regression methodology:**
 
 1. Compute quarterly CPI percent change from index levels: `CPI_t / CPI_{t-3} - 1`
 2. Annualize by compounding: `(1 + q_change)^4 - 1`
@@ -360,41 +352,43 @@ Quarterly coefficients are forward-filled to monthly for the output panel.
 **Why quarterly, not monthly or trailing?** We tested three specifications:
 - *10-year trailing CPI* (original): DW stats of 0.02 — massive autocorrelation from 119/120 month overlap. R-sq of 0.97 was spurious (two persistent series appearing correlated just because they're both trending). Betas unreliable.
 - *Monthly CPI log-changes*: DW ~2.0 (perfect independence) but R-sq near zero for most countries. Monthly inflation is too noisy — the structural co-movement is buried in idiosyncratic monthly variation. The regression collapses to a constant (intercept only), defeating the purpose of incorporating the reference breakeven.
-- *Annualized quarterly CPI changes* (current): DW ~1.8–2.5 (independent, non-overlapping quarters). R-sq of 0.09–0.74 — real but modest explanatory power. Betas are economically sensible and stable. Both Y and X are in the same annualized units as the breakeven, so prediction requires no rescaling.
+- *Annualized quarterly CPI changes* (current): DW ~1.8–2.5 (independent, non-overlapping quarters). R-sq of 0.01–0.74 — real but modest explanatory power. Betas are economically sensible and stable. Both Y and X are in the same annualized units as the breakeven, so prediction requires no rescaling.
 
-Two regression groups, each with a different reference:
-- **Euro area reference** (SE, CH, DK, NO, NZ): regressed on EA CPI, predicted with ECB breakeven. These are small open economies with inflation that co-moves with the euro area.
-- **US reference** (CA): regressed on US CPI, predicted with US TIPS breakeven. Canada's economy is tightly linked to the US, and using the US reference avoids the ~30Y maturity mismatch of the Bank of Canada's RRB-based breakeven.
-
-NZ currently uses the euro area as reference. Once Australian breakevens are integrated into the FI value signal, NZ could switch to using AU as the predictor for a tighter fit.
+**Two regression groups:**
+- **US-referenced** (DE, FR, IT, NL, BE, SE, CH, DK, NO, JP, CA): regressed on US CPI, predicted with US TIPS breakeven (`T10YIE`). US TIPS is the deepest, most liquid inflation-linked bond market and the cleanest available reference.
+- **AU-referenced** (NZ): regressed on Australian CPI, predicted with RBA breakeven. NZ inflation co-moves with Australia far more than with the US or euro area (R-sq 0.51 vs 0.01–0.32).
 
 Domain shift caveat: the regression is fitted on backward-looking realized CPI but applied to a forward-looking market-implied breakeven. For the cross-sectional value signal, this bias is roughly constant across countries and cancels in the long/short construction.
 
-Latest regression results (20-quarter window, as of April 2026):
+**Latest regression results (20-quarter window, as of April 2026):**
 
-| Country | Ref | Alpha | Beta | R-sq | DW |
+| Country | Ref | Beta | R-sq | DW | Quality |
 |---|---|---|---|---|---|
-| DK | EA | — | 0.91 | 0.58 | 2.39 |
-| CA | US | — | 0.79 | 0.74 | 2.89 |
-| SE | EA | — | 0.63 | 0.29 | 1.66 |
-| CH | EA | — | 0.47 | 0.53 | 2.33 |
-| NZ | EA | — | 0.38 | 0.32 | 1.87 |
-| NO | EA | — | 0.26 | 0.09 | 2.89 |
+| CA | US | 0.79 | 0.74 | 2.89 | Strong |
+| CH | US | 0.49 | 0.71 | 1.85 | Strong |
+| NZ | AU | 0.57 | 0.51 | 1.37 | Decent |
+| DK | US | 0.78 | 0.50 | 1.64 | Decent |
+| FR | US | 0.49 | 0.45 | 1.54 | Moderate |
+| DE | US | 0.55 | 0.30 | 2.42 | Weak-moderate |
+| BE | US | 0.41 | 0.16 | 1.16 | Weak |
+| IT | US | 0.38 | 0.10 | 1.77 | Weak |
+| NO | US | 0.14 | 0.03 | 2.64 | Near zero |
+| NL | US | 0.37 | 0.04 | 2.74 | Near zero |
+| JP | US | -0.08 | 0.02 | 2.59 | Near zero |
+| SE | US | 0.10 | 0.01 | 0.83 | Near zero |
 
-DK beta of 0.91 reflects the krone/EUR peg. CA at 0.79 reflects tight US-Canada linkage. CH at 0.47 reflects structurally lower Swiss inflation. NO at 0.26 is the weakest fit — Norwegian inflation is largely oil-driven and idiosyncratic to the euro area.
+CA, CH, NZ, DK, FR respond meaningfully to their reference breakeven. DE is borderline. IT, NL, BE, SE, NO, JP are effectively running on intercept only — the reference breakeven doesn't predict their inflation. For these weak-fit countries, the output is the country's own historical average inflation rate, which is still a reasonable (if static) estimate for the value signal.
 
 ### Implementation status
 
 | Source | Country/Countries | Tenor | Script | Status |
 |---|---|---|---|---|
 | FRED `T10YIE` | US | 10Y | `fetch_breakeven_inflation.R` | Done |
-| ECB SDMX API | DE, FR, IT, NL, BE (aggregate) | 10Y | `fetch_breakeven_inflation.R` | Done |
-| BoE IADB | GB | 10Y | `fetch_breakeven_inflation.R` | Done |
+| BoE IADB `IUDMIZC` | GB | 10Y | `fetch_breakeven_inflation.R` | Done |
 | RBA Table F2 | AU | 10Y | `fetch_breakeven_inflation.R` | Done |
-| FRED CPI (8 countries) | regression inputs | — | `fetch_breakeven_inflation.R` | Done |
-| Regression (CPI ~ EA) | SE, CH, DK, NO, NZ | 10Y (estimated) | `build_breakeven_inflation.R` | Done |
-| Regression (CPI ~ US) | CA | 10Y (estimated) | `build_breakeven_inflation.R` | Done |
-| ECB + BB.JBTS scrape | JP | 10Y | — | TODO |
+| FRED CPI (14 countries) | regression inputs | — | `fetch_breakeven_inflation.R` | Done |
+| Regression (CPI ~ US) | DE, FR, IT, NL, BE, SE, CH, DK, NO, JP, CA | 10Y (estimated) | `build_breakeven_inflation.R` | Done |
+| Regression (CPI ~ AU) | NZ | 10Y (estimated) | `build_breakeven_inflation.R` | Done |
 
 Pipeline: `fetch_breakeven_inflation.R` (fetches & caches raw data) → `build_breakeven_inflation.R` (regressions & final panel).
 Output: `data/fred/breakeven_inflation.rds` — panel with columns `date`, `country`, `breakeven` (decimal).
@@ -416,6 +410,7 @@ The factors went through several iterations. Key fixes and their impact:
 | Min country threshold | FI all | — | +0.03–0.06 | Dropped noisy pre-1985 period with <8 countries |
 | Exact repricing formula | FI all | — | ~+0.01 | Captures convexity and roll-down; marginal improvement |
 | US TIPS breakeven for value | FI Value (US) | ends Apr 2025 | extends to present | Forward-looking, real-time vs 2-month CPI lag |
+| Breakeven panel for all FI value | FI Value (all) | US breakeven + 14 trailing CPI | all 15 via breakeven panel | Removed CPI dependency from FI script; non-US use regression-estimated breakevens |
 | US 3M T-bill splice for FX | FX all | 2-month gap Apr-May 2020 | no gap | Single missing OECD USD rate cascaded to all currencies |
 
 ---
@@ -425,37 +420,34 @@ The factors went through several iterations. Key fixes and their impact:
 All factor data is cached locally as `.rds` files. No API calls on subsequent script runs unless cache files are deleted.
 
 ```
-FRED API (yields, rates, CPI, FX)    OECD API (PPP)    AQR website (xlsx)
-    |                                     |                    |
-    v                                     v                    v
-Raw data (.rds cache in data/fred/)    PPP rates (.rds)    Excel files (data/aqr/)
-    |                                     |                    |
-    v                                     v                    v
-Derived returns (.rds)               Monthly PPP (.rds)   Parsed factors (.rds)
-    |                                     |
-    v                                     v
-Factor signals (.rds)  <---- value signal uses PPP ----
-    |
-    v
-Factor returns (.rds)
+Step 1 (parallel):
+  FRED API (yields, rates)  FRED/BoE/RBA (breakevens, CPI)  FRED+OECD (FX)  AQR (xlsx)
+       |                            |                            |               |
+       v                            v                            v               v
+  fi_raw_yields.rds          be_raw_*.rds                   fx_raw_*.rds    data/aqr/
+
+Step 2:
+  be_raw_*.rds → build_breakeven_inflation.R → breakeven_inflation.rds
+
+Step 3:
+  fi_raw_yields.rds + breakeven_inflation.rds → fetch_fi_factors.R → fi_factor_returns.rds
 ```
 
 ### Scripts
 
-| Script | Purpose | Data Source | Outputs |
-|---|---|---|---|
-| `fetch_fi_factors.R` | FI factor pipeline | FRED (yields, rates, CPI) | 5 `.rds` files in `data/fred/` |
-| `fetch_fx_factors.R` | FX factor pipeline | FRED (FX, rates, CPI) + OECD (PPP) | 7 `.rds` files in `data/fred/` |
-| `fetch_aqr_equity_factors.R` | Parse AQR equity factors | AQR `.xlsx` files | 3 `.rds` files in `data/aqr/` |
-| `fetch_breakeven_inflation.R` | Fetch & cache raw breakeven data | FRED, ECB, BoE, RBA, FRED CPI | 5 `be_raw_*.rds` in `data/fred/` |
-| `build_breakeven_inflation.R` | Regression estimates + final panel | Cached `be_raw_*.rds` | `breakeven_inflation.rds` |
-| `plot_factor_returns.R` | Cumulative return plots | Cached `.rds` files | 3 ggplot objects |
+| Script | Purpose | Data Source | Outputs | Dependencies |
+|---|---|---|---|---|
+| `fetch_aqr_equity_factors.R` | Parse AQR equity factors | AQR `.xlsx` files | 3 `.rds` in `data/aqr/` | None |
+| `fetch_breakeven_inflation.R` | Fetch & cache raw breakeven data | FRED, BoE, RBA, FRED CPI | 5 `be_raw_*.rds` in `data/fred/` | None |
+| `fetch_fx_factors.R` | FX factor pipeline | FRED (FX, rates, CPI) + OECD (PPP) | 7 `.rds` in `data/fred/` | None |
+| `build_breakeven_inflation.R` | Regression estimates + final panel | Cached `be_raw_*.rds` | `breakeven_inflation.rds` | `fetch_breakeven_inflation.R` |
+| `fetch_fi_factors.R` | FI factor pipeline | FRED (yields, rates) + breakeven panel | 4 `.rds` in `data/fred/` | `build_breakeven_inflation.R` |
+| `plot_factor_returns.R` | Cumulative return plots | Cached `.rds` files | 3 ggplot objects | All factor scripts |
 
 ### Cached Data Files
 
 **`data/fred/`** — FRED-sourced FI and FX data:
 - `fi_raw_yields.rds` — 15-country yield + 3M rate panel
-- `fi_raw_cpi.rds` — 14-country CPI index panel
 - `fi_bond_returns.rds` — Monthly bond total returns (exact repricing)
 - `fi_factor_signals.rds` — Carry, value, momentum, defensive signals
 - `fi_factor_returns.rds` — Factor return time series
