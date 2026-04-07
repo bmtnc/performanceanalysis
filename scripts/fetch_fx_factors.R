@@ -189,7 +189,7 @@ fx_raw <- fx_daily |>
   group_by(currency, ym) |>
   slice_tail(n = 1) |>
   ungroup() |>
-  mutate(date = ym) |>
+  mutate(date = lubridate::ceiling_date(ym, "month") - 1L) |>
   select(date, series_id, value, currency)
 
 cat(sprintf("  End-of-month observations: %d\n", nrow(fx_raw)))
@@ -249,6 +249,8 @@ if (nrow(usd_tbill_fill) > 0) {
     arrange(currency, date)
 }
 
+ir_raw <- ir_raw %>%
+  mutate(date = lubridate::ceiling_date(date, "month") - 1L)
 cat(sprintf("  Pulled %d interest rate observations\n", nrow(ir_raw)))
 saveRDS(ir_raw, out_raw_rates)
 
@@ -355,6 +357,8 @@ if (nrow(bad_cpi) > 0) {
   stop("Fix the CPI series IDs above before proceeding.")
 }
 
+cpi_raw <- cpi_raw %>%
+  mutate(date = lubridate::ceiling_date(date, "month") - 1L)
 saveRDS(cpi_raw, out_raw_cpi)
 
 
@@ -455,7 +459,8 @@ tryCatch(
           (cpi_foreign / cpi_base_foreign) /
           (cpi_us / cpi_base_us)
       ) |>
-      select(date, currency, ppp_monthly)
+      select(date, currency, ppp_monthly) %>%
+      mutate(date = lubridate::ceiling_date(date, "month") - 1L)
 
     cat(sprintf(
       "  Interpolated to %d monthly PPP observations\n",

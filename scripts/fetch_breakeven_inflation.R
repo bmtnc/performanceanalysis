@@ -29,6 +29,7 @@
 library(dplyr)
 library(fredr)
 library(httr)
+library(lubridate)
 
 fredr_set_key(Sys.getenv("FRED_API_KEY"))
 
@@ -36,16 +37,22 @@ output_dir <- "data/fred"
 api_sleep <- 0.5
 
 # CPI FRED series for regression countries + references
+# All US-referenced regression countries + US itself
 cpi_regression_series <- c(
+  DE = "DEUCPIALLMINMEI",
+  FR = "FRACPIALLMINMEI",
+  IT = "ITACPIALLMINMEI",
+  NL = "NLDCPIALLMINMEI",
+  BE = "BELCPIALLMINMEI",
   SE = "SWECPIALLMINMEI",
   CH = "CHECPIALLMINMEI",
   DK = "DNKCPIALLMINMEI",
   NO = "NORCPIALLMINMEI",
+  JP = "JPNCPIALLMINMEI",
   CA = "CANCPIALLMINMEI",
-  EA = "CP0000EZ19M086NEST",
   US = "USACPIALLMINMEI"
 )
-# AU CPI is quarterly on FRED, handled alongside NZ below
+# AU and NZ CPI are quarterly on FRED, handled separately below
 au_cpi_series <- "AUSCPIALLQINMEI"
 
 # Cache paths
@@ -106,7 +113,7 @@ if (file.exists(cache_paths$us_breakeven)) {
     us_breakeven <- us_raw %>%
       dplyr::transmute(date, breakeven = value / 100) %>%
       daily_to_monthly("breakeven") %>%
-      dplyr::transmute(date, country = "US", breakeven)
+      dplyr::transmute(date = lubridate::ceiling_date(date, "month") - 1L, country = "US", breakeven)
     saveRDS(us_breakeven, cache_paths$us_breakeven)
     message(sprintf("  US: %s to %s (%d months)",
       format(min(us_breakeven$date)), format(max(us_breakeven$date)),
@@ -143,7 +150,7 @@ if (file.exists(cache_paths$ea_breakeven)) {
 
     ea_breakeven <- ecb_nom %>%
       dplyr::inner_join(ecb_re, by = "date") %>%
-      dplyr::transmute(date, country = "EA", breakeven = (nominal - real_yield) / 100)
+      dplyr::transmute(date = lubridate::ceiling_date(date, "month") - 1L, country = "EA", breakeven = (nominal - real_yield) / 100)
     saveRDS(ea_breakeven, cache_paths$ea_breakeven)
     message(sprintf("  EA: %s to %s (%d months)",
       format(min(ea_breakeven$date)), format(max(ea_breakeven$date)),
@@ -190,7 +197,7 @@ if (file.exists(cache_paths$uk_breakeven)) {
       ) %>%
       dplyr::filter(!is.na(date), !is.na(breakeven)) %>%
       daily_to_monthly("breakeven") %>%
-      dplyr::transmute(date, country = "GB", breakeven)
+      dplyr::transmute(date = lubridate::ceiling_date(date, "month") - 1L, country = "GB", breakeven)
     saveRDS(uk_breakeven, cache_paths$uk_breakeven)
     message(sprintf("  GB: %s to %s (%d months)",
       format(min(uk_breakeven$date)), format(max(uk_breakeven$date)),
@@ -231,7 +238,7 @@ if (file.exists(cache_paths$au_breakeven)) {
       dplyr::filter(!is.na(date), !is.na(nominal_10y), !is.na(indexed_10y)) %>%
       dplyr::mutate(breakeven = (nominal_10y - indexed_10y) / 100) %>%
       daily_to_monthly("breakeven") %>%
-      dplyr::transmute(date, country = "AU", breakeven)
+      dplyr::transmute(date = lubridate::ceiling_date(date, "month") - 1L, country = "AU", breakeven)
     saveRDS(au_breakeven, cache_paths$au_breakeven)
     message(sprintf("  AU: %s to %s (%d months)",
       format(min(au_breakeven$date)), format(max(au_breakeven$date)),
@@ -319,7 +326,8 @@ if (file.exists(cache_paths$cpi_panel)) {
     message("  AU CPI unavailable")
   }
 
-  cpi_panel <- dplyr::bind_rows(cpi_list)
+  cpi_panel <- dplyr::bind_rows(cpi_list) %>%
+    dplyr::mutate(date = lubridate::ceiling_date(date, "month") - 1L)
   saveRDS(cpi_panel, cache_paths$cpi_panel)
   message(sprintf("  CPI panel: %d countries, %s to %s",
     dplyr::n_distinct(cpi_panel$country),

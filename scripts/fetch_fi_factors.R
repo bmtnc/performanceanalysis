@@ -1,13 +1,16 @@
 # Fixed Income Factor Data: Fetch from FRED & Compute Factor Returns
 #
-# Fetches 10Y yields, 3M rates, and CPI from FRED for 15 developed markets.
-# Computes bond returns, factor signals (carry, value, momentum, defensive),
-# and long/short factor portfolio returns. Caches all outputs as .rds files.
+# Fetches 10Y yields and 3M rates from FRED for 15 developed markets.
+# Loads breakeven inflation panel (from fetch/build_breakeven_inflation.R)
+# for the value signal. Computes bond returns, factor signals (carry, value,
+# momentum, defensive), and long/short factor portfolio returns.
+# Caches all outputs as .rds files.
 
 # Config ----
 
 library(dplyr)
 library(fredr)
+library(lubridate)
 library(slider)
 
 fredr_set_key(Sys.getenv("FRED_API_KEY"))
@@ -41,43 +44,18 @@ rate_3m_series <- setNames(
   countries
 )
 
-# CPI uses 3-letter ISO codes in FRED; Australia is quarterly
-iso3_map <- c(
-  US = "USA",
-  GB = "GBR",
-  DE = "DEU",
-  JP = "JPN",
-  FR = "FRA",
-  CA = "CAN",
-  AU = "AUS",
-  IT = "ITA",
-  NL = "NLD",
-  SE = "SWE",
-  BE = "BEL",
-  CH = "CHE",
-  DK = "DNK",
-  NO = "NOR",
-  NZ = "NZL"
-)
-
-cpi_series <- setNames(
-  paste0(iso3_map, "CPIALLMINMEI"),
-  countries
-)
-# Australia CPI is quarterly on FRED
-cpi_series["AU"] <- "AUSCPIALLQINMEI"
-
 output_dir <- "data/fred"
 output_paths <- list(
   raw_yields = file.path(output_dir, "fi_raw_yields.rds"),
-  raw_cpi = file.path(output_dir, "fi_raw_cpi.rds"),
   bond_returns = file.path(output_dir, "fi_bond_returns.rds"),
   factor_signals = file.path(output_dir, "fi_factor_signals.rds"),
   factor_returns = file.path(output_dir, "fi_factor_returns.rds")
 )
 
+# Breakeven inflation panel (produced by fetch/build_breakeven_inflation.R)
+breakeven_path <- file.path(output_dir, "breakeven_inflation.rds")
+
 # Parameters for derived quantities
-trail_cpi_months <- 36L
 momentum_lookback <- 12L
 momentum_skip <- 1L
 beta_window <- 36L
@@ -86,18 +64,6 @@ beta_shrink_ols <- 0.6 # Vasicek shrinkage weight on OLS beta (Fix 3)
 beta_shrink_prior <- 1.0 # Vasicek prior beta (Fix 3)
 min_countries <- 8L # Min countries with non-missing signal per month (Fix 4)
 api_sleep <- 0.5
-
-# US 10Y TIPS breakeven inflation rate (T10YIE). Used in place of trailing CPI
-# for the US value signal because:
-#   1. Forward-looking (market-implied), not backward-looking
-#   2. Updated daily on FRED vs CPI which lags ~2 months
-#   3. Tenor-matched to the 10Y nominal yield we're subtracting from
-# Non-US countries still use trailing CPI — no equivalent breakeven series on
-# FRED for most developed markets.
-# TODO: Source breakeven or inflation expectations for non-US countries
-# TODO: Japan CPI is stale on FRED since April 2022 (OECD stopped publishing);
-#       need alternative source (BoJ, Statistics Bureau) or exclude JP from value
-us_breakeven_series <- "T10YIE"
 
 # Helper: fetch a single FRED series safely
 fetch_one <- function(series_id) {
@@ -139,86 +105,38 @@ for (cc in countries) {
 yields_panel <- dplyr::bind_rows(yield_raw) |>
   dplyr::full_join(dplyr::bind_rows(rate_raw), by = c("date", "country"))
 
-# Convert from percent to decimal
+# Convert from percent to decimal; normalize dates to month-end
 yields_panel <- yields_panel |>
   dplyr::mutate(
+    date = lubridate::ceiling_date(date, "month") - 1L,
     yield_10y = yield_10y / 100,
     rate_3m = rate_3m / 100
   )
 
-# 2. Fetch CPI data ----
-
-message("Fetching CPI...")
-cpi_raw <- list()
-for (cc in countries) {
-  message("  ", cc, " -> ", cpi_series[[cc]])
-  res <- fetch_one(cpi_series[[cc]])
-  if (!is.null(res)) {
-    cpi_raw[[cc]] <- res |>
-      dplyr::transmute(date, country = cc, cpi = value)
-  }
-  Sys.sleep(api_sleep)
-}
-
-cpi_panel <- dplyr::bind_rows(cpi_raw)
-
-# Australia CPI is quarterly -- step-interpolate to monthly
-au_cpi <- cpi_panel |> dplyr::filter(country == "AU")
-if (nrow(au_cpi) > 0) {
-  au_months <- tibble::tibble(
-    date = seq.Date(min(au_cpi$date), max(au_cpi$date), by = "month")
-  )
-  au_cpi_monthly <- au_months |>
-    dplyr::left_join(au_cpi, by = "date") |>
-    dplyr::mutate(country = "AU", # Forward-fill quarterly CPI to monthly (base R, no tidyr dependency)
-    cpi = {
-      idx <- which(!is.na(cpi))
-      if (length(idx) > 0) {
-        cpi[idx[findInterval(seq_along(cpi), idx, left.open = FALSE)]]
-      } else {
-        cpi
-      }
-    })
-
-  cpi_panel <- cpi_panel |>
-    dplyr::filter(country != "AU") |>
-    dplyr::bind_rows(au_cpi_monthly)
-}
-
-# 2b. Fetch US breakeven inflation ----
-
-message("Fetching US 10Y TIPS breakeven (T10YIE)...")
-us_breakeven_raw <- fetch_one(us_breakeven_series)
-if (!is.null(us_breakeven_raw)) {
-  # T10YIE is daily; take last observation per month, convert pct to decimal
-  us_breakeven <- us_breakeven_raw |>
-    dplyr::transmute(date, breakeven = value / 100) |>
-    dplyr::filter(!is.na(breakeven)) |>
-    dplyr::mutate(ym = lubridate::floor_date(date, "month")) |>
-    dplyr::arrange(date) |>
-    dplyr::group_by(ym) |>
-    dplyr::slice_tail(n = 1) |>
-    dplyr::ungroup() |>
-    dplyr::transmute(date = ym, breakeven)
-  message(sprintf(
-    "  US breakeven: %s to %s (%d months)",
-    format(min(us_breakeven$date)),
-    format(max(us_breakeven$date)),
-    nrow(us_breakeven)
-  ))
-} else {
-  warning("Failed to fetch T10YIE; US value signal will fall back to trailing CPI")
-  us_breakeven <- tibble::tibble(date = as.Date(character()), breakeven = numeric())
-}
-
-# 3. Save raw data ----
+# 2. Load breakeven inflation panel ----
 
 if (!dir.exists(output_dir)) {
   dir.create(output_dir, recursive = TRUE)
 }
+
+if (!file.exists(breakeven_path)) {
+  stop(
+    "Breakeven inflation panel not found: ", breakeven_path,
+    "\nRun fetch_breakeven_inflation.R then build_breakeven_inflation.R first."
+  )
+}
+breakeven_panel <- readRDS(breakeven_path)
+message(sprintf(
+  "Loaded breakeven panel: %d countries, %s to %s",
+  dplyr::n_distinct(breakeven_panel$country),
+  format(min(breakeven_panel$date)),
+  format(max(breakeven_panel$date))
+))
+
+# 3. Save raw data ----
+
 saveRDS(yields_panel, output_paths$raw_yields)
-saveRDS(cpi_panel, output_paths$raw_cpi)
-message("Saved raw yields and CPI.")
+message("Saved raw yields.")
 
 # 4. Compute bond returns ----
 
@@ -260,41 +178,17 @@ carry_signals <- bond_returns |>
   dplyr::filter(!is.na(rate_3m)) |>
   dplyr::transmute(date, country, carry = yield_10y - rate_3m)
 
-# 5b. Value: real yield = nominal yield - inflation estimate
-# US: 10Y TIPS breakeven (forward-looking, real-time)
-# Non-US: annualized 3yr trailing CPI change (backward-looking, lagged)
-# TODO: Source breakeven/inflation expectations for non-US countries to
-#       eliminate the ~2 month CPI publication lag that truncates the panel
+# 5b. Value: real yield = nominal yield - breakeven inflation
+# Breakeven panel provides market-implied (US, GB, AU) or regression-estimated
+# inflation expectations for all 15 countries.
+value_signals <- bond_returns |>
+  dplyr::inner_join(breakeven_panel, by = c("date", "country")) |>
+  dplyr::mutate(value = yield_10y - breakeven) |>
+  dplyr::transmute(date, country, value)
 
-# Non-US: trailing CPI approach
-value_signals_nonus <- bond_returns |>
-  dplyr::filter(country != "US") |>
-  dplyr::left_join(cpi_panel, by = c("date", "country")) |>
-  dplyr::arrange(country, date) |>
-  dplyr::group_by(country) |>
-  dplyr::mutate(
-    cpi_lag36 = dplyr::lag(cpi, trail_cpi_months),
-    inflation_3y = cpi / cpi_lag36 - 1,
-    inflation_ann = (1 + inflation_3y)^(1 / 3) - 1,
-    real_yield = yield_10y - inflation_ann
-  ) |>
-  dplyr::ungroup() |>
-  dplyr::filter(!is.na(real_yield)) |>
-  dplyr::transmute(date, country, value = real_yield)
-
-# US: TIPS breakeven approach
-value_signals_us <- bond_returns |>
-  dplyr::filter(country == "US") |>
-  dplyr::left_join(us_breakeven, by = "date") |>
-  dplyr::mutate(real_yield = yield_10y - breakeven) |>
-  dplyr::filter(!is.na(real_yield)) |>
-  dplyr::transmute(date, country, value = real_yield)
-
-value_signals <- dplyr::bind_rows(value_signals_us, value_signals_nonus)
-message(sprintf(
-  "  Value signals: US via breakeven (%d obs), non-US via CPI (%d obs)",
-  nrow(value_signals_us), nrow(value_signals_nonus)
-))
+be_countries <- dplyr::n_distinct(value_signals$country)
+be_obs <- nrow(value_signals)
+message(sprintf("  Value signals: %d countries, %d obs (breakeven-based)", be_countries, be_obs))
 
 # 5c. Momentum: 12-1 month cumulative bond total return
 mom_signals <- bond_returns |>
@@ -536,12 +430,12 @@ message(
   " countries)"
 )
 message(
-  "CPI panel: ",
-  format(min(cpi_panel$date)),
+  "Breakeven panel: ",
+  format(min(breakeven_panel$date)),
   " to ",
-  format(max(cpi_panel$date)),
+  format(max(breakeven_panel$date)),
   " (",
-  dplyr::n_distinct(cpi_panel$country),
+  dplyr::n_distinct(breakeven_panel$country),
   " countries)"
 )
 message(
