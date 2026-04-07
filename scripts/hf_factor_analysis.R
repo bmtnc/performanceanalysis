@@ -12,6 +12,10 @@ target_ticker <- "BIMBX"
 
 roll_window_monthly <- 24L # factor regressions (monthly, ~5 years)
 
+# Performance cone assumptions
+sharpe_ratio <- 0.5    # annualized, excess return / vol
+volatility <- 0.10     # annualized vol (e.g. 0.10 = 10%)
+
 # Date range filtering (NULL = use all available data)
 start_date <- as.Date("2018-01-31")
 end_date <- NULL
@@ -183,11 +187,39 @@ message(paste0(
 ))
 
 # ============================================================================
-# ANALYSIS 1: ROLLING FACTOR EXPOSURES (UNCONSTRAINED)
+# ANALYSIS 1: PERFORMANCE CONE
 # ============================================================================
 
 message("\n========================================")
-message("ANALYSIS 1: ROLLING FACTOR EXPOSURES")
+message("ANALYSIS 1: PERFORMANCE CONE")
+message("========================================")
+
+cone_returns <- regression_data %>%
+  dplyr::select(date, return = target_return)
+
+cone_data <- calculate_performance_cone(
+  cone_returns,
+  sharpe_ratio = sharpe_ratio,
+  volatility = volatility
+)
+
+message("\nAssumptions:")
+message(sprintf("  Sharpe ratio:       %.2f", attr(cone_data, "sharpe_ratio")))
+message(sprintf("  Volatility:         %.1f%%", attr(cone_data, "volatility") * 100))
+message(sprintf("  Arithmetic return:  %.2f%%", attr(cone_data, "mu_arithmetic") * 100))
+message(sprintf("  Geometric growth:   %.2f%%", attr(cone_data, "mu_geometric") * 100))
+message(sprintf("  Variance drain:     %.2f%%", attr(cone_data, "variance_drain") * 100))
+
+p1 <- plot_performance_cone(cone_data, target_ticker = target_ticker)
+
+print(p1)
+
+# ============================================================================
+# ANALYSIS 2: ROLLING FACTOR EXPOSURES (UNCONSTRAINED)
+# ============================================================================
+
+message("\n========================================")
+message("ANALYSIS 2: ROLLING FACTOR EXPOSURES")
 message("========================================")
 
 x_mat <- as.matrix(regression_data[, factor_cols])
@@ -232,30 +264,30 @@ message(sprintf(
 ))
 message(sprintf("  %-12s: %.3f", "Sum of betas", sum(latest[factor_cols])))
 
-p1 <- plot_rolling_exposures(
+p2 <- plot_rolling_exposures(
   target_exposure, factor_cols, target_ticker, roll_window_monthly
 )
-
-print(p1)
-
-# ============================================================================
-# ANALYSIS 2: ROLLING ALPHA
-# ============================================================================
-
-message("\n========================================")
-message("ANALYSIS 2: ROLLING ALPHA")
-message("========================================")
-
-p2 <- plot_rolling_alpha(target_exposure, target_ticker, roll_window_monthly)
 
 print(p2)
 
 # ============================================================================
-# ANALYSIS 3: FULL-SAMPLE DECOMPOSITION
+# ANALYSIS 3: ROLLING ALPHA
 # ============================================================================
 
 message("\n========================================")
-message("ANALYSIS 3: FULL-SAMPLE DECOMPOSITION")
+message("ANALYSIS 3: ROLLING ALPHA")
+message("========================================")
+
+p3 <- plot_rolling_alpha(target_exposure, target_ticker, roll_window_monthly)
+
+print(p3)
+
+# ============================================================================
+# ANALYSIS 4: FULL-SAMPLE DECOMPOSITION
+# ============================================================================
+
+message("\n========================================")
+message("ANALYSIS 4: FULL-SAMPLE DECOMPOSITION")
 message("========================================")
 
 full_fit <- constrained_linear_regression(
@@ -283,11 +315,11 @@ message(sprintf("  %-12s: %.4f", "R-squared", full_fit$r.squared))
 message(sprintf("  %-12s: %.3f", "Sum of betas", sum(full_coefs[factor_cols])))
 
 # ============================================================================
-# ANALYSIS 4: CUMULATIVE CONTRIBUTION TO RETURN
+# ANALYSIS 5: CUMULATIVE CONTRIBUTION TO RETURN
 # ============================================================================
 
 message("\n========================================")
-message("ANALYSIS 4: CUMULATIVE CONTRIBUTION TO RETURN")
+message("ANALYSIS 5: CUMULATIVE CONTRIBUTION TO RETURN")
 message("========================================")
 
 target_returns_ctr <- monthly_returns %>%
@@ -323,25 +355,25 @@ cumulative_ctr <- calculate_cumulative_ctr(ctr_data, ctr_col_names)
 message(paste0("CTR observations: ", nrow(ctr_data)))
 message(paste0("Date range: ", min(ctr_data$date), " to ", max(ctr_data$date)))
 
-p4 <- plot_cumulative_ctr(
+p5 <- plot_cumulative_ctr(
   cumulative_ctr, factor_cols, target_ticker, roll_window_monthly
 )
 
-print(p4)
+print(p5)
 
 # ============================================================================
-# ANALYSIS 5: FACTOR EXPOSURE DISTRIBUTION
+# ANALYSIS 6: FACTOR EXPOSURE DISTRIBUTION
 # ============================================================================
 
 message("\n========================================")
-message("ANALYSIS 5: FACTOR EXPOSURE DISTRIBUTION")
+message("ANALYSIS 6: FACTOR EXPOSURE DISTRIBUTION")
 message("========================================")
 
-p5 <- plot_exposure_distribution(
+p6 <- plot_exposure_distribution(
   target_exposure, factor_cols, target_ticker, roll_window_monthly
 )
 
-print(p5)
+print(p6)
 
 # ============================================================================
 # SUMMARY
